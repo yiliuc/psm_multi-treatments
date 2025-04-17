@@ -1,0 +1,1239 @@
+---
+title: "Propensity Score Matching for Multiple-Treatments in Causal Inference"
+author: "Yiliu Cao"
+abstract: "Propensity scores (PS), which measures the probability of receiving a treatment given a set of covariates, are widely used to estimate average treatment effects with one of the most popular method is propensity score matching. In traditional binary treatments setting, units from treatment and control groups are matched based on similar propensity scores. However, in practice, it is common to have multiple treatments, making the propensity score matching and estimation of average treatment effects be more challenging as propensity scores is now a vector instead of a scalar. This paper will mainly focus on the matching methods on propensity scores under multi-treatment such as Vector Matching and its extensions. This paper will conduct a simulation study to evaluate the performance of various matching strategies in terms of covariate balance, and assess the accuracy of ATE estimation under these approaches."
+title-block-banner: true
+output:
+  pdf_document:
+    number_sections: true
+fontsize: 11pt
+# nocite: '@*'
+bibliography: references.bib
+csl: apa.csl
+---
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# import the r functions
+# source("vector_matching.R")
+# source("codes.R")
+# source("codes_final.R")
+source("cccc.R")
+library(tidyverse)
+```
+
+# Introduction
+
+Causal inference plays an important role in many scientific fields, including epidemiology, finance, and more. It enables us to estimate the effect of specific interventions or treatments on outcomes we are interested in. Traditionally, causal inference focuses on binary treatments and compares the difference in outcomes between the treatment and control groups. However, in real-world applications, it is common that the outcome may not depend on only one treatment but on two or more treatments such as multi-drug testing. If we only investigate the single-treatment effect of one drug, then the study will be less comprehensive and convinced. In this paper, we are going to investigate the average treatment effect ATE under multi-treatment setting.
+
+The main method that will be discussed in this paper is called the propensity score matching PSM. Propensity score is the probability of receiving the treatment given a set of covariates. In PSM, we firstly calcualte the propensity scores for each unit and then match the units from different treatment groups and then estimate the ATE by the difference of the outcome. However, unlike the traditional binary treatment where the propensity score is a scalar, the propensity becomes a vector (so-called the generalized propensity scores GPS) under the multi-treatment. This makes the matching more difficult as we GPS for each unit is a vector instead. It would be nearly impossible to find two units from different treatment but has the same GPS vector. In this paper, we will discuss the method called Vector Matching VM which is PSM for GPS. We will especially focus on the balance of covariates before and after matching, and most importantly, we will see how to estimate the ATE between different pair of treatment and see the accuracy of estimation.
+
+There are plenty of researches focusing on the PSM for GPS. In terms of methodologies estimating the GPS, the most common way is to use the multinomial logistic regressions [@mccaffrey]. In addition to the parametric regression, two machine-learning based methods, generalized boosted model (GBM) and Random Forests (RF), can be also applied to estimate the GPS. For GBM, it consists many simple regression trees iteratively and implement separate GBMs on each indicator of each treatment to estimate the propensity scores, respectively [@mccaffrey]. Zhu et al. [@yeying_boosting] further extends this idea to multiple continuous treatments. In terms of GBM, RF is a collection of classification and regression trees CART, and the GPS is predicted as the fraction of trees that classify the unit to the certain treatment [@Lee2010; @Weight_Trimming]. In terms of the matching method for GPS, it is quite a recent topic. The idea is insighted by the method called Series of binomial comparisions by Lechner [@lechner2001], and was formalized to PSM for GPS, called Vector Matching by Lopez and Gutman [@LopezGutman2017]. The key idea for VM is that we use clustering methods such as K-means clustering on the rest propensity scores while perform matching. VM was further extended by including, for example Mahalanobis distance or fuzzy clustering, by Scotina and Gutman [@matching2]. This topic has rich potential to be extended further, and this paper will discuss the original algorithm and its two extensions to test their performance on estimating the ATE.
+
+This paper is structured as follows. Section 2 will take a brief review of causal inference and generalized propensity scores. We will presents the detailed Vector Matching Algorithm and two extensions on Section 3. In Section 4, we will conduct a simulation study to demonstrate its performance by 1) checking the balance of matching and 2) the accuracy of estimation of ATEs under the matching methods. All the results, as well as the limitation and future work will be discussed in Section 5.
+
+# Framework
+
+## Notations for Multi-treatment
+
+What distinguished the causal inference from the traditional inference is that it focuses on uncovering causal relationships between treatments and outcomes, rather than merely identifying associations. While association examines correlations or patterns between covariates and outcomes, causal inference seeks to determine whether changes in a treatment variable actually cause changes in the outcome. However, the key problem in estimating the causal effects is the fundamental problem which states that we can only observe the outcome under the treatment they actually received, not under alternative treatments. For instance, if a patient receives medication A, we cannot observe what the outcome would have been had they instead received medication B.
+
+To address the fundamental problem, causal inference relies on two key assumptions. The first one is the consistency assumption, which states that if a subject receive the treatment $t$, then his observed outcome $Y$ is equal to the potential outcome under that treatment, denoted $Y^t$. Formally, consistecny assumes $Y=Y^t$. The second assumption is the exchangebility, which assumes the potential outcomes are independent of the treatment assignment. That is, $T\perp Y^t$. These two assumptions are foundational and apply to both binary and multi-treatment settings in causal inference framework.
+
+Under these two assumptions, let $Y_i,\mathbf{X}_i,T_i$ denote the observed outcome, set of covariates and treatment assignment for each subject $i=1,..., N$ with $N<\mathcal{N}$ where $\mathcal{N}$ is the population size. Let $\mathcal{T}$ be the treatment space of $Z$ treatments such that $|\mathcal{T}|=Z$. In addition, let $Y_i^j$ be the potential outcome of receiving treatment $j$ for subject $i$, and $\mathbf{Y}_i=\{Y_i^j\}_{j=1}^Z$ represent the full vector of potential outcomes for subject $i$ under each treatment.
+
+In terms of average treatment effect $ATE$ and the average treatment effect on the treated $ATT$ in the context of multiple treatments, let $\mathcal{T}=\{T_j\}_{j=1}^Z$, let $w_1, w_2 \subseteq \mathcal{T}$ be two subgroups of treatments such that $w_1 \cap w_2=\varnothing$. Then $ACE$ between these two groups of treatment $ACT_{w_1,w_2}$is defined as
+$$
+ATE_{w_1, w_2}=E\left[\frac{\sum_{t \in w_1} Y_i^t}{\left|w_1\right|}-\frac{\sum_{t \in w_2} Y_i^t}{\left|w_2\right|}\right]
+$$
+and the average treatment effect on the treated among units receiving treatments in $w_1$ is defined as
+$$
+ATT_{w_1 | w_1, w_2}=E\left[\left.\frac{\sum_{t \in w_1} Y_i^t}{\left|w_1\right|}-\frac{\sum_{t \in w_2} Y_i^t}{\left|w_2\right|} \right\rvert\, T_i \in w_1\right]
+$$
+In this paper, we will focus only on the case where where $|w_1|=|w_2|=1$, i.e., comparisons between two specific treatments. For example, if $\mathcal{T}=\{1, 2, 3\}$ such that $|\mathcal{T}|=3$, the average treatment effect between treatment 1 and 2 and the corresponding average treatment effect among units receiving 1 are defined as
+$$
+ATE_{12}=E\left[Y_i^1-Y_i^2\right]\quad ATT_{1 | 12}=E\left[Y_i^1-Y_i^2\rvert\, T_i =1\right]
+$$
+
+## Propensity Scores
+
+As previously introduced, the propensity score refers to the probability of receiving a specific treatment conditional on a set of covariates $\mathbf{X}$. For a single treatment $t$, he propensity score is defined as
+$$
+r(t,\mathbf{X})=p(T=t\mid\mathbf{X})\in\mathbb{R}
+$$
+In the case of multiple treatments, each unit has a nonzero probability of receiving any one of the $Z$ treatments. Consequently, the propensity score generalize to a vector form, which is so-called as generalized propensity scores GPS. The GPS is defined as
+$$
+\mathbf{R}(\mathbf{X})=\left(r\left(t_1, \mathbf{X}\right), \ldots, r\left(t_Z, \mathbf{X}\right)\right)\in\mathbb{R}^Z
+$$ 
+Propensity scores are widely used in causal inference due to two key properties that make it a powerful tool for addressing confounding. First, the propensity score is a balancing score, which implies that conditional on the propensity score, the distribution of observed covariates is independent of the treatment assignment. This property ensures that units with the same propensity score have similar distributions of covariates, regardless of the treatment received. As a result, propensity scores effectively reduce confounding bias by adjusting for covariates that influence both treatment assignment and outcomes. In addition, if treatment assignment is independent of the potential outcomes conditional on covariates, then this independence also holds conditional on the propensity score. This implies the causal estimand $E[Y^a|r(t,\mathbf{X})]$ identifiable, and allow us to estimate $ATE$ or $ATT$. The proof of the two properties can be found in Appendix 6.1.
+
+As introduce previously, the methods of estimating propensity scores are various include parametric regression such as multinomial logistic regression [@mccaffrey], and machine-learning based methods such as generalized boosted models GBM and random forest RF [@mccaffrey; @Lee2010; @Weight_Trimming]. In addition, the choice of estimation method also depends on the nature of the treatment. In general, there are two types of treatment which are ordinal and nominal treatments. The ordinal treatments describes the treatments that follows certain order such as low, medium and high, while there are not any orders for nominal treatments [@LopezGutman2017]. In this paper, we will only consider the nominal treatments. Since the primary focus on this paper is not the estimation of propensity scores, we will use multinomial logistic regression for simplicity and interpretability.
+
+Multinomial logistic regression [@mccaffrey; ]estimates each propensity score by modeling the log-odds of each treatment relative to a reference category, typically the last treatment $Z$. For $t=1, \ldots, Z-1$, it assumes
+$$
+\log \left(\frac{P\left(T=t \mid \mathbf{X}\right)}{P\left(T=Z \mid \mathbf{X}\right)}\right)=\mathbf{X}^\prime \boldsymbol{\beta}_z
+$$ 
+Then corresponding propensity score for each treatment is estimated as
+$$
+\begin{gathered}
+P\left(T=t \mid \mathbf{X}\right)=\frac{\exp \left(\mathbf{X}^\prime \boldsymbol{\beta}_t\right)}{1+\sum_{j=1}^{Z-1} \exp \left(\mathbf{X}^\prime \boldsymbol{\beta}_j\right)}, \quad t=1, \ldots, Z-1 \\
+P\left(T=Z \mid \mathbf{X}\right)=\frac{1}{1+\sum_{j=1}^{Z-1} \exp \left(\mathbf{X}^\prime \boldsymbol{\beta}_j\right)}
+\end{gathered}
+$$
+The R codes on estimating the generalized propensity scores can be found at Appendix.
+
+# Matching on Generalized Propensity Scores
+
+The primary propensity score-based method considered in this paper is propensity score matching. It says that, if we can match the units from different treatment groups, who has the similar propensity scores, then we can use these matched pair of units to estimate the treatment effect by the average difference on the outcome. This method is straightforward to implement in binary treatment, where the propensity score for each unit is just a scalar. However, as the number of treatments increases, the propensity scores now become a vector. If we only match the unit based on the propensity score for one or several treatments, it does not guarantee the the similarity of the rest and leads to bias in estimating the treatment effect. To match the generalized propensity scores, we will explore an alternative approach called Vector Matching VM. We are going to discuss some extensions of VM as well.
+
+## Vector Matching
+
+A crucial prerequisite of Vector Matching is to identify the region of common support, which ensures that the matching is made between units who are comparable across treatment groups [@LopezGutman2017; @matching2]. In other words, for any treatments we are analyzing, we want to ensure that there are people in all treatment groups who had a similar propensity scores of that treatment based on their covariates. To do that, we define $r(t,\mathbf{X}|T=t_1)^{(low)}$ as the maximum of the minimum estimated propensity scores for treatment $t$ within each treatment group. That is, we find the minimized $r(t, \mathbf{X})$ for units receiving each treatment respectively, and then find the maximum one. In contrast, $r(t,\mathbf{X}|T=t_1)^{(high)}$ is defined as the minimum of the maximum estimated propensity scores for treatment $t$ t within each treatment group. Mathematically,
+$$
+\begin{aligned}
+r(t, \mathbf{X})^{(low)}= & \max \left\{\min \left(r\left(t, \mathbf{X} \mid T=t_1\right)\right), \ldots,\min \left(r\left(t, \mathbf{X} \mid T=t_Z\right)\right)\right\}\\
+r(t, \mathbf{X})^{(high)}= & \min \left\{\max \left(r\left(t, \mathbf{X} \mid T=t_1\right)\right), \ldots,\max \left(r\left(t, \mathbf{X} \mid T=t_Z\right)\right)\right\},
+\end{aligned}
+$$
+and we then select only those units whose estimated GPS values for all treatments fall within the corresponding common support region. We define the indicator variable $E_i$ for each unit $i$ such that $E_i=\mathbf{1}\{r(t, \mathbf{X})\in\{r(t, \mathbf{X})^{(low)},r(t, \mathbf{X})^{(high)}\}\:\forall t\in\mathcal{T}\}$, and we only select the units whose $E_i=1$. After excluding the units outside the common support region, we would re-fit the GPS model to ensure the comparability across the treatments.
+
+For Vector Matching, the key problem it is trying to solve is how to match units between two treatment groups while ensuring similarity across the entire generalized propensity score (GPS) vector. To solve this, it has two key steps. Suppose we are matching the units from treatment $t$ and $t^\prime$, Vector Matching firstly use clustering methods such as K-means clustering on the rest $Z-2$ components of GPS vector to ensure that the units are similar within each structure. Then it matches units in treatment $t$ and $t^\prime$ within each cluster. These two steps will make sure the global similarity across all GPS components [@LopezGutman2017; @matching2]. The detailed Vector Matching algorithm follows as:
+
+1. Select a reference treatment $t \in \mathcal{T} = \{t_1, t_2, \dots, t_Z\}$.
+2. Compute the GPS vector $R(\mathbf{X}_i)$ for each subject $i = 1, \ldots, N$ using multinomial logistic regression. 
+3. Define the common support region $\{r(t, \mathbf{X})^{(low)},r(t, \mathbf{X})^{(high)}\}\:\forall t\in\mathcal{T}$ for multi-treatment propensity scores to ensure overlap across all treatment groups.
+4. Remove units with propensity scores that fall outside the common support region. Refit the propensity score model after dropping these units to ensure valid estimates.
+5. For each treatment pair $(t, t')$ where $t' \neq t$:
+   a. Classify all units using K-means clustering with $K=Z$ based on the logit transform of the rest $Z-2$ components of the GPS vector (excluding $\hat{r}(t, \mathbf{X})$ and $\hat{r}(t', \mathbf{X})$).
+   b. Within each cluster, perform 1 to 1 matching between subjects receiving $t$ and $t'$ on $\text{logit}(\hat{r}(t,\mathbf{X}_i))$ with replacement using a caliper of $\epsilon \times \mathrm{sd}\left(\operatorname{logit}\left(\hat{r}(t,\mathbf{X})\right)\right)$, where $\epsilon=0.2$. The caliper here is the maximum distance we can accept between the units.
+6. Units from the treatment are matched to each of the $Z-1$ treatments, and form the final cohort matched data sets.
+
+It is important to emphasize that VM does not produce a single combined matched dataset across all treatments. Instead, it yields $Z-1$ separate matched datasets, each containing only the units from the reference treatment $t$ and one of the other $Z-1$ treatments. Each dataset is constructed independently and used to estimate pairwise treatment effects.
+
+## Extensions to Vector Matching
+
+The basic version of Vector Matching (VM) provides an effective way to match units in multi-treatment settings based on their generalized propensity scores (GPS). However, it also has several limitations. First, because VM employs 1:1 nearest-neighbor matching, not all units with similar propensity scores will necessarily be matched. As a result, some samples may be excluded from the matched dataset, leading to efficiency loss and potential bias in treatment effect estimation. Second, recall that VM performs matching based on a single component $\text{logit}(\hat{r}(t,\mathbf{X}_i))$. As the number of treatments increases, it may not be adequate to control the imbalance on the remaining $Z-1$ components of the GPS vector. Although K-means clustering is used to stratify units prior to matching, clustering does not guarantee to balance the covariates. Third, K-means clustering introduces rigid boundaries in the covariate space. As a results, units located near the edges of clusters may fail to find suitable matches. This limitation becomes more pronounced in high-dimensional GPS, leading to further loss in sample size and an increase in estimation error.
+
+To address the above limitations, Scotina and Gutman [@matching2] proposed some extensions on VM. Firstly, to mitigate the impact of limited matching, we adopt 1:2 matching, referred to as VM2. Each unit in the treatment $t$ will be matched to two units instead of 1. This will increase the matched sample size, thus improve efficiency while still maintaining covariate balance. In addition, to improve balance across all components of the GPS vector, we replace univariate matching which based solely on $\text{logit}(\hat{r}(t,\mathbf{X}_i))$ with multivariate matching using the Mahalanobis distance. More specifically, the matching is performed based on $\left(\text{logit}(\hat{r}(t,\mathbf{X})),\text{logit}(\hat{r}(t,\mathbf{X}))\right)^\prime$, referred as VM_MD. We will compare the performance between the two extensions and the original VM through a simulation study on the next section.
+
+# Simulations
+
+In much of the existing literature on matching based on generalized propensity scores (GPS), simulation studies primarily focus on evaluating covariate balance across treatment groups after matching [@LopezGutman2017; @matching2]. These studies typically simulate covariates with different conditional distributions $\mathbf{X}\mid T=t$ and see the balance of each covariates after the matching. However, they disregard the most important thing in causal inference, which is to estimate $ATE$ or $ATT$ from the matched data sets. Therefore, the simulation study in this paper would focus on two things. First, we will still illustrate the balance of covariates after the matching by using some metrics introduced later. Second, and more importantly, we will evaluate the accuracy of treatment effect estimation by comparing the estimated ATEs from the matched datasets to the true treatment effects specified in the data-generating process. The matching methods we will employ are the Vector Matching VM, Vector Matching with two matches for each unit VM2 and Vector Matching using Mahalanobis distance VM_MD.
+
+## Simulation Metrics
+
+As this simulation study has two main objectives on 1) checking the balance of covariates after matching and 2) estimate the ATE from the matched data. We will adopt the following metrics to asses the performance of each method.
+
+To compare the balance of covariates, we follow the metric propsed by Lopez and Gutman, which employs weighted mean to check the balance [@LopezGutman2017]. For each of the $Z-1$ matched data set, let $n_{pair}$ be the number of pairs in each matched data, and let $\psi_i$ be the number of times of unit $i$ that in the pairs. The weighted mean of $X_p$ for treatment $t$ where $p\in\{1,\ldots,P\},\:t\in\{1,\ldots,T\}$, $\bar X_{pt}$ is defined as
+$$
+\bar X_{pt}=\frac{\sum_{i=1}^N X_{p i} \mathbf{I}_i(t) \psi_i}{n_{trip}}
+$$
+where $\mathbf{I}_i(t)$ is an indicator variable that equals to 1 if and only if the unit $i$ actually receive $t$. Consequently, within each matched data set, we define the standardized bias for each covariate $X_p$ between the treatment $j$ and $k$, $SB_{pjk}$as
+$$
+SB_{pjk}=\frac{\bar{X}_{pj}-\bar{X}_{pk}}{\delta_{pt}}
+$$
+where $\delta_{pt}$ is the standard deviation of $X_p$ among the units who receive the reference treatment $t$. It is possible that $t$ equals to $j$ or $k$. Rubin and Thomas suggested that a standardized bias below 0.25 is generally considered acceptable for making valid causal inferences [@rubin1996matching]. In addition on that, a cutoff 0.2 is suggested under the multi-treatment settings [@mccaffrey]. To estimate the imbalance across all covariates, Lopez and Gutman [@LopezGutman2017] further extend this idea by taking the maximum value of standardized pairwise bias for each covariate $X_p$, denoted by $\operatorname{Max} 2 S B_p$, defined as
+$$
+\operatorname{Max}2SB_p=\max \left(\left|S B_{p 12}\right|,\left|S B_{p 13}\right|,\left|S B_{p 23}\right|, \ldots\right)
+$$
+where each $\left|S B_{pij}\right|$ corresponds to each matched data set. By calculating $\operatorname{Max}2SB_p$ for each covariate, it tells us the largest discrepancy of each covariate across all possible pairs of treatments.
+
+However, a potential issue arises when calculating the $\operatorname{Max}2SB_p$. Since each matched data set only contains units from the reference treatment $t$ and the matched units from only one of the $Z-1$ treatments, not all pairwise comparisons are directly represented. For instance, if treatment 1 is chosen as the reference, we obtain matched datasets for comparisons between treatment 1 and treatments $\{2, 3, ..., Z\}$, but not between treatments 2 and 3. As such, $SB_{p 23}$ cannot be computed from the matched datasets with reference group 1 alone. Although this limitation is not explicitly mentioned by Lopez and Gutman (2017), we need to repeat the matching procedure by switching the reference treatment. At the end, we will have $p$ different $\operatorname{Max}2SB_p$ and we will the average of them, $\overline{\operatorname{Max}2SB}=\frac1P\sum_{p=1}^P\operatorname{Max}2SB_p$, to measure the overall balance of the matching. 
+
+In addition to evaluating covariate balance, our second goal is to estimate the average treatment effect (ATE) from the matched datasets. However, as previously mentioned, the recent literatures of matching on GPS does not include too much details on estimating the ATE based on the matched data sets. This paper will adopt the waysfrom multi-level treatment, which is slightly different with multi-treatments, to estimate the ATE [@lin_zhu_chen]. The method assigns inverse probability weights based on the estimated propensity scores. Specifically, for a given treatment. Specifically, given the treatment $t$, each unit is assigned by a weight $w_i(t)$ where $w_i(t)=\frac{1}{\hat{p}_i(t \mid x)}$. Based on the assigned weights, the expected outcome for treatment $t$ is
+$$
+\hat{\mu}_t=\frac{\sum_{i=1}^n \mathbf{I}(T_i=t)w_i(t) Y_i}{\sum_{i=1}^n \mathbf{I}(T_i=t) w_i(t)}
+$$
+and estimate the average treatment effect between treatment $t$ and $s$ by
+$$
+\widehat{ATE}_{ts}=\hat{\mu}_t-\hat{\mu}_s
+$$
+The R code used to implement this estimation method is provided in the Appendix.
+
+## Simulation setup
+
+The simulation design in this paper was adpoted from the design from multi-level treatments settings [@lin_zhu_chen], with several modifications tailored to the multi-treatment setting. In this study, we will assume the outcome $Y$ is continuous and there are only three treatments for simplicity. To simulated data sets, we firstly generate two variables $X_1$, $X_2$ that are related to both treatment assignment and outcome, which are called as the confounders in our design. Moreover, we generate $X_3$ that are only associated with the treatment assignment and $X_4$ that is only related to the outcome. We will assume all variables are continuous and follow normal distribution with mean zero and standard deviation 1. Let the treatment space $\mathcal{T}=\{1,2,3\}$ such that $|\mathcal{T}|=3$. The treatment assignment probabilities are generated using a multinomial logistic model as follows:
+$$
+\begin{aligned}
+& P(T_i=0 \mid \mathbf{X}_i)=\frac{1}{1+\exp\{f_1(\mathbf{X}_i)\}+\exp\{f_2(\mathbf{X}_i)\}}\\
+& P(T_i=1 \mid \mathbf{X}_i)=\frac{\exp\{f_1(\mathbf{X}_i)\}}{1+\exp\{f_1(\mathbf{X}_i)\}+\exp\{f_2(\mathbf{X}_i)\}}\\
+& P(T_i=2 \mid \mathbf{X}_i)=\frac{\exp\{f_2(\mathbf{X}_i)\}}{1+\exp\{f_1(\mathbf{X}_i)\}+\exp\{f_2(\mathbf{X}_i)\}}
+\end{aligned}
+$$
+where $f_j(\mathbf{X})$ are functions of covariates $\mathbf{X}_i$. In this study, we consider five different specifications for these functions, including linear, quadratic, interaction, and combination forms (details provided in the Appendix). In addition, the true data-generating process for the outcome is specified as:
+$$
+\mathbb{E}[Y|\mathbf{X}]=4 + 0.3X_1 - 0.2X_2 + 0.6X_4-0.5\mathbf{I}\{T=2\}+0.7\mathbf{I}\{T=3\}
+$$
+where $\mathbf{I}\{T=j\}$ is an indicator variale that equals to 1 if and only if the treatment received for each unit is $j$. It can be computed that the true $ATE_{1,2}=0.5$, $ATE_{1,3}=-0.7$ and $ATE_{3,2}=-1.2$ (see Appendix).
+
+When performing the Vector Matching, we choose the treatments 1 and 2 as reference treatments in separate iterations. As a result, the VM yields two sets of matched datasets: 1) units receiving treatment 1 matched to those receiving treatments 2 and 3, and 2 units receiving treatment 2 matched to those receiving treatments 3. As illustrate in the previous subsection, overall standardized bias simplifies to:
+$$
+\operatorname{Max}2SB_p=\max \left(\left|S B_{p 12}\right|,\left|S B_{p 13}\right|,\left|S B_{p23}\right|\right)
+$$
+For each scenario described in Appendix, we take the sample size to be 3000. The full simulation works as follows:
+
+1. Generate 3000 samples using the given scenario of $f_j(\mathbf{X}_i)$.
+2. Compute the generalized propensity scores for each unit using multinomial logistic regression, and compute the common support region described previously.
+3. Select the units whose propensity scores satisfies the common support region, and re-fit the model to estimate the GPS again.
+4. Choose the reference treatment $t$ as treatment 1. For each $t^\prime\in\{2,3\}$, we perform the K-means clustering on $l\neq t,t^\prime$, then perform the three matching methods (VM, VM2 and VM_MD) described in Section 3. This will give us matched data sets for pair $(1,2)$ and $(2,3)$. Repeat for each matching method and will return six data sets.
+5. Repeat 4 but set the reference treatment to be 2. Take only the matched data for pair $(2, 3)$. Repeat for each matching method and will return three data sets. 
+6. Use the resulting data sets to compute the $\overline{\operatorname{Max}2SB}$ and matched rate which is the proprotion of units being matched across all matched data sets. We will also estimate the two average effect $\widehat{ATE_{12}}$ and $\widehat{ATE_{13}}$.
+7. Repeat Steps 1 to 5 for 300 times.
+
+While we can also estimate $\widehat{ATE_{23}}$, we focus on treatment pairs involving the same reference group (i.e., treatment 1), to allow for more consistent estimates across the methods. The codes of generating the data can be found at Appendix. Appendix a to b shows the functions of steps 2 to 5. Appendix c shows the codes for running one simulation and Appendix d shows how to fun the simulation for multiple times.
+
+## Simulation results
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=4, fig.cap="*Covariate density by treatment group for one simulation before matching*"}
+data <- simulate_multitreatment_data(3000)
+
+library(ggplot2)
+library(gridExtra)
+
+plot_covariate_densities <- function(data, covariates, nrow = 2, ncol = 2, caption = NULL) {
+  plot_list <- list()
+  
+  for (i in seq_along(covariates)) {
+    covar <- covariates[i]
+    
+    p <- ggplot(data, aes_string(x = covar, fill = "factor(Treatment)")) +
+      geom_density(alpha = 0.4) +
+      labs(title = paste(covar),
+           x     = covar,
+           fill  = "Treatment") +
+      theme_minimal()
+    
+    plot_list[[i]] <- p
+  }
+  
+  # Arrange all plots with optional caption at the bottom
+  do.call(grid.arrange, c(plot_list, nrow = nrow, ncol = ncol,
+                          bottom = if (!is.null(caption)) caption else NULL))
+}
+
+covariates <- c("X1", "X2", "X3", "X4")
+plot_covariate_densities(data, covariates)
+```
+
+Figure 1 presents the distribution of the four covariates across the three treatment groups in a single simulated dataset under Scenario 1. It shows notable discrepancies in covariate distributions between treatment groups, with particularly large differences observed in $X_1$, $X_2$ and $X_3$. This imbalance underscores a key concern in causal inference that the direct estimation of $ATE$ without adjustment for confounding variables would likely result in substantial bias and misleading conclusions. This also highlights the necessarity of methods such as propensity score matching.
+
+Following the matching steps, Figure 2 shows the distribution of $\overline{\operatorname{Max}2SB}$ and the matching rate under the four methods under scenario 1. We can see that all three method all has a distribution with mean bias larger than the cutoff 0.2 suggested by the McCaffrey et al. [@mccaffrey], suggesting that none of these method eliminate the bias perfectly. Among the three matching methods, the Vector Matching with two matches has the highest bias, whose mean bias is around 2. Followed by VM2, the original matching has the medium bias with mean around 1.5. In addition, the Vector Matching using Mahalanobis distance generates the lowest bias, with main part lies between 0.7 and 0.8. All three methods have relatively good performance on matching rate, which are all above 80%. In addition, the pattern observed in the matching rate mirrors that of the covariate bias. Methods that yield higher bias tend to retain a larger proportion of matched units, while those that enforce stricter similarity criteria result in lower matching rates. This outcome is expected, as the use of Mahalanobis distance imposes more stringent matching constraints, leading to a lower matching rate.
+
+```{r, echo=FALSE, message = FALSE}
+# Read the simulation data
+library(here)
+load(here("simulation/sim300_4var_s1_results.Rdata"))
+simulation_1 <- sim_results 
+load(here("simulation/sim300_4var_s2_results.Rdata"))
+simulation_2 <- sim_results 
+load(here("simulation/sim300_4var_s3_results.Rdata"))
+simulation_3 <- sim_results 
+load(here("simulation/sim300_4var_s4_results.Rdata"))
+simulation_4 <- sim_results 
+load(here("simulation/sim300_4var_s5_results.Rdata"))
+simulation_5 <- sim_results
+
+sim_list <- mget(sprintf("simulation_%d", 1:5))
+make_dfs <- function(sim) {
+  metrics <- c("max2sb","ate_12","ate_13","match_rate")
+  out <- lapply(metrics, function(m) {
+    data.frame(
+      VM    = sim$VM[[m]],
+      VM2   = sim$VM2[[m]],
+      VM_MD = sim$VM_MD[[m]],
+      stringsAsFactors = FALSE
+    )
+  })
+  names(out) <- metrics
+  out
+}
+all_sims <- lapply(sim_list, make_dfs)
+```
+
+```{r, echo=FALSE, message=FALSE, fig.width=8, fig.height=3.5, fig.cap = "*Average of maximum pair-wise treatment bias and corresponding matching rate under each method (Scenario 1).*"}
+par(mfrow = c(1, 2), mar = c(3.8, 4, 1.9, 0.5))
+boxplot(all_sims$simulation_1$max2sb,
+        main = expression("Average bias " * bar("Max 2SB")),
+        ylab = "Estimation",
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+boxplot(all_sims$simulation_1$match_rate,
+        main = "Matched Rate",
+        ylab = "Matching Rate (%)",
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+```
+
+In addition to the bias and matching rate, Figure 3 shows the distribution of estimation of the two treatment effects. Recall that the true treatment effects are 0.2 and -0.7. All three methods seems to have a relatively same performance, where the mean estimations for the two are around 0.55 and -0.8. However, it seems that the results using VM_MD exhibit slightly greater deviation from the true values compared to the other methods. The reason is might be the lower matching rate of VM_MD, which leads to a loss of sample size and reduced data variability, thereby increasing the variance of the estimates.
+
+```{r, echo = FALSE, fig.width=8, fig.height=3.5, fig.cap = "*Distributions of ATE Estimates for Treatments 1 vs 2 and 1 vs 3 under each method (Scenario 1).*"}
+par(mfrow = c(1, 2), mar = c(3.8, 4, 1.9, 0.5))
+boxplot(all_sims$simulation_1$ate_12,
+        main = expression("Estimation of " * ATE[12]),
+        ylab = expression(ATE[12]),
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+boxplot(all_sims$simulation_1$ate_13,
+        main = expression("Estimation of " * ATE[13]),
+        ylab = expression(ATE[13]),
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+```
+
+```{r, echo=FALSE, fig.width=8, fig.height=5, fig.cap = "*Comparision of estimation on two treatment effects under different scenarios under different methods.*"}
+# 1. compute a 3×5 matrix of means (rows = methods, cols = simulations)
+means_ate_12 <- sapply(all_sims, function(sim) {
+  colMeans(sim$ate_12)
+})
+means_ate_13 <- sapply(all_sims, function(sim) {
+  colMeans(sim$ate_13)
+})
+# gives a matrix with rownames VM, VM2, VM_MD
+
+# 2. transpose and plot
+par(mfrow = c(2, 1), mar = c(3.9, 4, 0, 2))
+matplot(
+  t(means_ate_12),            # now 5×3: rows=scenarios, cols=methods
+  type = "b",               # both points and lines
+  pch  = 1:3,               # different point shapes
+  lwd = 2,
+  lty  = 1,                 # solid lines
+  col  = c("lightblue","#E69F00","#E41A1C"),  # your three colours
+  xaxt = "n",               # we'll add x-axis manually
+  xlab = "",
+  ylab = expression(Average~ATE[12])
+)
+axis(1, at = 1:5, labels = 1:5)  # label scenarios 1–5
+
+legend(
+  "topright",
+  legend = rownames(means_ate_12),
+  col    = c("lightblue","#E69F00","#E41A1C"),
+  pch    = 1:3,
+  lwd = 1.5,
+  lty    = 1,
+  cex = 0.63
+)
+
+matplot(
+  t(means_ate_13),            # now 5×3: rows=scenarios, cols=methods
+  type = "b",               # both points and lines
+  pch  = 1:3,               # different point shapes
+  lwd = 2,
+  lty  = 1,                 # solid lines
+  col  = c("lightblue","#E69F00","#E41A1C"),  # your three colours
+  xaxt = "n",               # we'll add x-axis manually
+  xlab = "Scenario",
+  ylab = expression(Average~ATE[13])
+)
+axis(1, at = 1:5, labels = 1:5)  # label scenarios 1–5
+
+legend(
+  "topright",
+  legend = rownames(means_ate_13),
+  col    = c("lightblue","#E69F00","#E41A1C"),
+  pch    = 1:3,
+  lwd = 1.5,
+  lty    = 1,
+  cex = 0.63
+)
+
+```
+
+Finally, Figure 4 compares the estimation of the two treatment effects under the five scenarios of $f_j$ under the three methods. For the estimation of $ATE_{12}$, the VM and VM2 seems to have the similar performance, where their estimates are similar under each scenarios. In contrast, VM_MD seems to generate the worse estimates, which has an approximate 0.02 estimation gap between the other two methods. Interestingly, all three methods have perfect estimation in Scenario 2, where the estimates are both very close to the true value 0.5. A similar pattern is observed for the estimation of $ATE_{13}$, where VM_MD only generates the similar estimates as the other two in scenarios 2 and 3, and has notable discrepancies on the rest. Furthermore, all three methods perform less accurately in estimating $ATE_{13}$ compared $ATE_{12}$, indicating that the estimation of treatment effects involving treatment 3 may be more sensitive to imbalance or model misspecification.
+
+# Discussion
+
+This paper introduced the generalized propensity scores in multi-treatment settings, and discuss the propensity score matching for generalized propensity scores, Vector Matching. This paper has conducted an simulation study to illustrate the performance of each matching method using different data-generating scheme. Overall, the performance of the Vector Matching and its extensions are satisfied. From Figure 2 to 4, we see that except the relatively high bias, the matching rate are excellent and the estimation of ATEs are close to the true value. In addition, from Figure 4, all three methods has good performance under different treatment assignment. Such results all suggest that the ability of propensity scores on eliminating confounding effects in observational studies.
+
+However, the recent study on propensity scores focus more on how to estimate them instead of how to use them. Moreover, for the methods using PS, other methods such as Inverse Probability Weighting or Doubly Robust Estimators [@fanli], or propensity score adjustment [@psa], seems to be more reliable and easy to implement. There are some potebtial reason behind this. Firstly, this method is computational intensive, especially when the number of treatments and number of covariates increases. In the simulation study, we considered the simplest case where we only take three treatments and take only choose 300 iterations which is smaller than common simulation studies. The reason for this is that the function to run one simulation is complicated and it is a big function (see Appendix). The time consuming to run 300 simulation under the Scenario 1 is around five minutes, and the time it takes increases gradually as we includes quardratic and interaction term in data simulation. Consequently, it will need significant much more time run even we only increase the number of treatment to four, or with a higher simulation times. This is also the main reason why we only present the three-treatment simulation rather than higher order. 
+
+As a result from low number of simulation, the results we see from Figure 2 and Figure 3 may not be the asymptotic performance of Vector Matching. That is, if we can increase the number of simulation to, say 1000 times. Then the estimated imbalance across the covariates should be lower, and the results of estimation of the two ATEs should be closer to the true treatment effects.This also implies that the Vector Matching should perform well when the number of coefficients gets higher, and eventually satisfies the cutoff suggest by Rubin and Thomas (1996), McCaffrey et al. (2013). On the other hand, even though we are at the low simulation, from Figure 4, it seems that the over estimation of $ATE_{12}$ is significantly better than $ATE_{13}$, even though they reference treatment are both treatment 1. 
+
+
+Future direction should be mainly concentrate on three things. Firstly, the extensions of VM presented in this paper are just two of them, there are much more possible extensions on Vector Matching [@matching2]. For example, one possible way is to use the fuzzy clustering instead of K-means clustering in step 5 a in Section 3.1. It can provides better classification abilities on the boundries of clustering. Another possible extension is that we do not set the caliper when perform matching using either the original VM or VM using Mahalanobis distance. This means we are now more generous as we do not set the maximum accept distance between units when matching. The original VM without the cliper seems to have the best performance on reducing the bias [@matching2]. In addition, there performance of Vector Matching when the number of treatment and number of covariates are really huge but the sample size are small are still unknown. This would be another challenging topic as it combines the problem of small sample and high-dimensional matching.
+
+\newpage
+
+# Appendix
+
+## Proof of balancing property and exchangebility of propensity scores
+
+We will prove under binary treatment setting, the proof in multi-treatments settings is similar.
+
+$r(t,\mathbf{X})$ is called the balancing score if 
+$$
+T \perp \mathbf{X} \mid r(t,\mathbf{X})
+$$
+***proof***: We know that 
+$$
+\begin{aligned}
+P[T=1 \mid r(t,\mathbf{X}), L] & =P[T=1 \mid L] \\
+& =r(t,\mathbf{X})
+\end{aligned}
+$$
+This imples that
+$$
+\begin{aligned}
+P[T=1 \mid r(t,\mathbf{X})] & =E[T \mid r(t,\mathbf{X})] \\
+& =E\{E[T \mid r(t,\mathbf{X}), L] \mid r(t,\mathbf{X})\} \\
+& =E\{E[T \mid L] \mid r(t,\mathbf{X})\} \\
+& =E\{r(t,\mathbf{X}) \mid r(t,\mathbf{X})\} \\
+& =r(t,\mathbf{X})
+\end{aligned}
+$$
+This implies
+$$
+P[T=1 \mid r(t,\mathbf{X}), L]=P[T=1 \mid r(t,\mathbf{X})] 
+$$
+
+Equivalently
+$$
+T \perp L \mid r(t,\mathbf{X})
+$$
+$\hfill \blacksquare$
+
+Next, we want to show the exchangebility of propensity scores, that is
+$$
+\left(Y^0, Y^1\right) \perp T\mid r(t,\mathbf{X})
+$$
+***proof***:
+$$
+\begin{aligned}
+P\left[T=1 \mid Y^0, Y^1, r(t,\mathbf{X})\right] & =E\left[T \mid Y^0, Y^1, r(t,\mathbf{X})\right] \\
+& =E\left[E\left[T \mid L, Y^0, Y^1, r(t,\mathbf{X})\right] \mid Y^0, Y^1, r(t,\mathbf{X})\right] \\
+& =E\left[E\left[T \mid L, Y^0, Y^1\right] \mid Y^0, Y^1, r(t,\mathbf{X})\right] \\
+& =E\left[E[T \mid L] \mid Y^0, Y^1, r(t,\mathbf{X})\right] \\
+& =E\left[r(t,\mathbf{X}) \mid Y^0, Y^1, r(t,\mathbf{X})\right] \\
+& =r(t,\mathbf{X}) \\
+& =P[T=1 \mid r(t,\mathbf{X})]
+\end{aligned}
+$$
+Thus it implies
+$$
+\left(Y^0, Y^1\right) \perp A \mid r(t,\mathbf{X})
+$$
+$\hfill \blacksquare$
+
+## Compute the true ATE
+
+Given the true model generating the outcome is
+$$
+\mathbb{E}[Y|\mathbf{X}]=4 + 0.3X_1 - 0.2X_2 + 0.6X_4-0.5\mathbf{I}\{T=2\}+0.7\mathbf{I}\{T=3\}
+$$
+The $ATE_{12}$ is the average difference between the potential outcome of receiving 1 and 2. Recall the assumption of exchangebility and consistency we introduced initially, $ATE_{12}$ can be expressed as
+$$
+\begin{aligned}
+ATE_{12}&=E[Y^1]-E[Y^2]\\
+&=E[Y^1\mid T=1]-E[Y^2\mid T=2]\quad\text{by exchangebility}\\
+&=E[Y\mid T=1]-E[Y\mid T=2]\quad\text{by consistency}\\
+&=0-(-0.5)\quad\text{from the funtion of generating Y}\\
+&=0.5
+\end{aligned}
+$$
+Similarly, we can calculate $ATE_{13}=-0.7$ and $ATE_{23}=-1.2$
+
+## The list of scanerios
+
+Case 1:
+$$
+\begin{aligned}
+f_1 &= 0.5 X_1 + 0.3 X_2 + 0.4 X_3 \\
+f_2 &= -0.2 X_1 + 0.6 X_2 - 0.3 X_3
+\end{aligned}
+$$
+Case 2:
+$$
+\begin{aligned}
+f_1 &= 0.5 X_1 + 0.3 X_2 + 0.4 X_3 - 0.4 X_1^2 \\
+f_2 &= -0.2 X_1 + 0.6 X_2 - 0.3 X_3 + 0.3 X_2^2
+\end{aligned}
+$$
+Case 3:
+$$
+\begin{aligned}
+f_1 &= 0.5 X_1 + 0.3 X_2 + 0.4 X_3 - 0.4 X_1^2 + 0.3 X_2^2 \\
+f_2 &= -0.2 X_1 + 0.6 X_2 - 0.3 X_3 + 0.3 X_2^2 + 0.2 X_3^2
+\end{aligned}
+$$
+Case 4:
+$$
+\begin{aligned}
+f_1 &= 0.5 X_1 + 0.3 X_2 + 0.4 X_3 - 0.2 X_1 X_2 \\
+f_2 &= -0.2 X_1 + 0.6 X_2 - 0.3 X_3 + 0.1 X_2 X_3
+\end{aligned}
+$$
+Case 5:
+$$
+\begin{aligned}
+f_1 &= 0.5 X_1 + 0.3 X_2 + 0.4 X_3 - 0.4 X_1^2 - 0.2 X_1 X_2 \\
+f_2 &= -0.2 X_1 + 0.6 X_2 - 0.3 X_3 + 0.3 X_2^2 + 0.1 X_2 X_3
+\end{aligned}
+$$
+
+\newpage
+
+
+## Graphics
+
+The average bias, matching rate estimation of the two treatment effect for the rest four scenarios that we do not have the space to put them on the main text.
+
+```{r, echo=FALSE, fig.pos='H', fig.width=8, fig.height = 4, fig.cap = "The average bias, matching rate estimation of the two treatment effect under scenario 2"}
+par(mfrow = c(2, 2), mar = c(3.8, 4, 1.9, 0.5))
+boxplot(all_sims$simulation_2$max2sb,
+        main = expression("Average bias " * bar("Max 2SB")),
+        ylab = "Estimation",
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+boxplot(all_sims$simulation_2$match_rate,
+        main = "Matched Rate",
+        ylab = "Matching Rate (%)",
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+boxplot(all_sims$simulation_2$ate_12,
+        main = expression("Estimation of " * ATE[12]),
+        ylab = expression(ATE[12]),
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+boxplot(all_sims$simulation_2$ate_13,
+        main = expression("Estimation of " * ATE[13]),
+        ylab = expression(ATE[13]),
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+```
+
+```{r, echo=FALSE, fig.pos='H', fig.width=8, fig.height=4, fig.cap = "The average bias, matching rate estimation of the two treatment effect under scenario 3"}
+par(mfrow = c(2, 2), mar = c(3.8, 4, 1.9, 0.5))
+boxplot(all_sims$simulation_3$max2sb,
+        main = expression("Average bias " * bar("Max 2SB")),
+        ylab = "Estimation",
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+boxplot(all_sims$simulation_3$match_rate,
+        main = "Matched Rate",
+        ylab = "Matching Rate (%)",
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+boxplot(all_sims$simulation_3$ate_12,
+        main = expression("Estimation of " * ATE[12]),
+        ylab = expression(ATE[12]),
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+boxplot(all_sims$simulation_3$ate_13,
+        main = expression("Estimation of " * ATE[13]),
+        ylab = expression(ATE[13]),
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+```
+
+```{r, echo=FALSE, fig.pos='H', fig.width=8, fig.height=4, fig.cap = "The average bias, matching rate estimation of the two treatment effect under scenario 4"}
+par(mfrow = c(2, 2), mar = c(3.8, 4, 1.9, 0.5))
+boxplot(all_sims$simulation_4$max2sb,
+        main = expression("Average bias " * bar("Max 2SB")),
+        ylab = "Estimation",
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+boxplot(all_sims$simulation_4$match_rate,
+        main = "Matched Rate",
+        ylab = "Matching Rate (%)",
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+boxplot(all_sims$simulation_4$ate_12,
+        main = expression("Estimation of " * ATE[12]),
+        ylab = expression(ATE[12]),
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+boxplot(all_sims$simulation_4$ate_13,
+        main = expression("Estimation of " * ATE[13]),
+        ylab = expression(ATE[13]),
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+```
+
+```{r, echo=FALSE, fig.pos='H', fig.width=8, fig.height=4, fig.cap = "The average bias, matching rate estimation of the two treatment effect under scenario 5"}
+par(mfrow = c(2, 2), mar = c(3.8, 4, 1.9, 0.5))
+boxplot(all_sims$simulation_5$max2sb,
+        main = expression("Average bias " * bar("Max 2SB")),
+        ylab = "Estimation",
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+boxplot(all_sims$simulation_5$match_rate,
+        main = "Matched Rate",
+        ylab = "Matching Rate (%)",
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+boxplot(all_sims$simulation_5$ate_12,
+        main = expression("Estimation of " * ATE[12]),
+        ylab = expression(ATE[12]),
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+boxplot(all_sims$simulation_5$ate_13,
+        main = expression("Estimation of " * ATE[13]),
+        ylab = expression(ATE[13]),
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+```
+
+
+\newpage
+
+
+## R codes
+
+### Generating the data set
+
+The R function that generating the data
+```{r}
+# Helper function to generate the data under Scenario 1
+simulate_multitreatment_data <- function(n = 3000, seed = 123) {
+  set.seed(seed)
+  
+  # Generate covariates
+  X1 <- rnorm(n, mean = 0, sd = 1)
+  X2 <- rnorm(n, mean = 0, sd = 1)
+  X3 <- rnorm(n, mean = 0, sd = 1)
+  X4 <- rnorm(n, mean = 0, sd = 1)
+  
+  # Define linear predictors for the multinomial logistic
+  f1 <-  0.5 * X1 + 0.3 * X2 + 0.4 * X3
+  f2 <- -0.2 * X1 + 0.6 * X2 - 0.3 * X3
+  
+  # Multinomial probabilities
+  denom <- 1 + exp(f1) + exp(f2)
+  p1 <- 1       / denom
+  p2 <- exp(f1) / denom
+  p3 <- exp(f2) / denom
+  
+  # Draw treatment T
+  T <- numeric(n)
+  for (i in seq_len(n)) {
+    T[i] <- sample(x = 1:3, size = 1, prob = c(p1[i], p2[i], p3[i]))
+  }
+  
+  # Outcome model + noise
+  base_mean <- 4 + 0.3 * X1 - 0.2 * X2 + 0.6 * X4
+  Y <- base_mean +
+    ifelse(T == 2, -0.5, 0) +
+    ifelse(T == 3,  0.7, 0) +
+    rnorm(n, mean = 0, sd = 1)
+  
+  return(data.frame(id = 1:n, X1 = X1, X2 = X2, X3 = X3, X4 = X4,
+                    Treatment = T, Y = Y))
+}
+```
+
+### Estimate the Generalized Propensity Scores
+
+The R function that estimate the generalized propensity scores using multinomial logistic regressions.
+```{r}
+library(nnet)  # for multinom
+estimate_propensity_scores <- function(data) {
+  data$Treatment <- as.factor(data$Treatment)
+  model <- multinom(Treatment ~ . - Treatment - id - Y, data = data, trace = FALSE)
+  propensity_scores <- predict(model, type = "probs")
+  treatment_levels <- levels(data$Treatment)
+  colnames(propensity_scores) <- paste0("PS", treatment_levels)
+  return(propensity_scores)
+}
+```
+
+### Compute the common support region
+
+The R function that compute the common support region and filtered the valid index.
+```{r}
+common_support <- function(ps_matrix, treatment_col) {
+  treatment_groups <- unique(ps_matrix[[treatment_col]])
+  low_values  <- numeric(length(treatment_groups))
+  high_values <- numeric(length(treatment_groups))
+  for (target_treatment in treatment_groups) {
+    ps_target <- ps_matrix[[paste0("PS", target_treatment)]]
+    group_min <- sapply(treatment_groups, function(actual_treatment) {
+      group_data <- ps_matrix[ps_matrix[[treatment_col]] == actual_treatment, ]
+      ps_values <- group_data[[paste0("PS", target_treatment)]]
+      return(min(ps_values))
+    })
+    group_max <- sapply(treatment_groups, function(actual_treatment) {
+      group_data <- ps_matrix[ps_matrix[[treatment_col]] == actual_treatment, ]
+      ps_values <- group_data[[paste0("PS", target_treatment)]]
+      return(max(ps_values))
+    })
+    low_values[target_treatment]  <- max(group_min)
+    high_values[target_treatment] <- min(group_max)
+  }
+  return(list(Low  = low_values,
+              High = high_values))
+}
+
+filter_valid_subjects_indices <- function(ps_data, css) {
+  low  <- css$Low
+  high <- css$High
+  is_valid <- apply(ps_data, 1, function(row) {
+    all(row >= low & row <= high)
+  })
+  return(which(is_valid))
+}
+```
+
+### Perform the K-means clustering
+
+The R function that perform the K-means clustering based on the $l$ such that $l\neq t,t^\prime$.
+```{r}
+perform_kmc <- function(ps_data, ref_treatment, t_prime, K = 5) {
+  # Filter the propensity scores
+  ps_subset <- ps_data[, !colnames(ps_data) %in% c(ref_treatment, t_prime), drop = FALSE]
+  
+  # Apply logit transformation to the remaining propensity scores
+  logit_transform <- function(p) log(p / (1 - p))
+  ps_logit <- apply(ps_subset, 2, logit_transform)
+  
+  # Perform KMC with the specified K
+  set.seed(123)
+  final_kmc <- kmeans(ps_logit, centers = K, nstart = 20)
+
+  return(list(clusters = final_kmc$cluster,
+              kmc_model = final_kmc))
+}
+```
+
+### Vector Matching VM
+
+```{r}
+library(MatchIt)
+library(Matching)
+
+perform_matching <- function(data, ref_treatment, t_prime, epsilon = 0.2) {
+  all_matches <- data.frame()
+  unique_clusters <- unique(data$Cluster)
+  
+  for (k in unique_clusters) {
+    cluster_data <- data[data$Cluster == k, ]
+    
+    # logit(PS(ref_treatment))
+    logit_transform <- function(p) log(p / (1 - p))
+    cluster_data$logit_r_t <- logit_transform(cluster_data[[paste0("PS", ref_treatment)]])
+    
+    # Keep T in {ref_treatment, t_prime}
+    cluster_data$treatment_indicator <- ifelse(
+      cluster_data$Treatment == ref_treatment, 1,
+      ifelse(cluster_data$Treatment == t_prime, 0, NA)
+    )
+    cluster_data <- subset(cluster_data, !is.na(treatment_indicator))
+    if (nrow(cluster_data) < 2) next
+    
+    caliper_width <- epsilon * sd(cluster_data$logit_r_t, na.rm = TRUE)
+    X  <- cluster_data$logit_r_t
+    Tr <- cluster_data$treatment_indicator
+    
+    match_result <- Match(
+      Y = NULL,
+      Tr = Tr,
+      X = X,
+      M = 1,
+      caliper = caliper_width,
+      replace = TRUE
+    )
+    matched_id <- data.frame(
+      id_ref     = cluster_data$id[ match_result$index.treated ],
+      t_ref      = cluster_data$Treatment[ match_result$index.treated ],
+      id_t_prime = cluster_data$id[ match_result$index.control ],
+      t_prime    = cluster_data$Treatment[ match_result$index.control ]
+    )
+    all_matches <- rbind(all_matches, matched_id)
+  }
+  return(all_matches)
+}
+```
+
+### Vector Matching with two matches VM2
+
+```{r}
+perform_matching_2 <- function(data, ref_treatment, t_prime, epsilon = 0.2, n_match = 2) {
+  all_matches <- data.frame()
+  unique_clusters <- unique(data$Cluster)
+  
+  for (k in unique_clusters) {
+    cluster_data <- data[data$Cluster == k, ]
+    
+    logit_transform <- function(p) log(p / (1 - p))
+    cluster_data$logit_r_t <- logit_transform(cluster_data[[paste0("PS", ref_treatment)]])
+    
+    cluster_data$treatment_indicator <- ifelse(
+      cluster_data$Treatment == ref_treatment, 1,
+      ifelse(cluster_data$Treatment == t_prime, 0, NA)
+    )
+    cluster_data <- subset(cluster_data, !is.na(treatment_indicator))
+    if (nrow(cluster_data) < 2) next
+    
+    caliper_width <- epsilon * sd(cluster_data$logit_r_t, na.rm = TRUE)
+    X  <- cluster_data$logit_r_t
+    Tr <- cluster_data$treatment_indicator
+    
+    match_result <- Match(
+      Y = NULL,
+      Tr = Tr,
+      X = X,
+      M = n_match,
+      caliper = caliper_width,
+      replace = TRUE
+    )
+    matched_id <- data.frame(
+      id_ref     = cluster_data$id[ match_result$index.treated ],
+      t_ref      = cluster_data$Treatment[ match_result$index.treated ],
+      id_t_prime = cluster_data$id[ match_result$index.control ],
+      t_prime    = cluster_data$Treatment[ match_result$index.control ]
+    )
+    all_matches <- rbind(all_matches, matched_id)
+  }
+  return(all_matches)
+}
+```
+
+### Vector Matching using Mahalanobis distance
+
+```{r}
+perform_matching_vm_md <- function(data, ref_treatment, t_prime, epsilon = 0.2) {
+  all_matches <- data.frame()
+  unique_clusters <- unique(data$Cluster)
+  
+  for (k in unique_clusters) {
+    cluster_data <- data[data$Cluster == k, ]
+    
+    logit_transform <- function(p) log(p / (1 - p))
+    cluster_data$logit_r_t      <- logit_transform(cluster_data[[paste0("PS", ref_treatment)]])
+    cluster_data$logit_r_tprime <- logit_transform(cluster_data[[paste0("PS", t_prime)]])
+    
+    cluster_data$treatment_indicator <- ifelse(
+      cluster_data$Treatment == ref_treatment, 1,
+      ifelse(cluster_data$Treatment == t_prime, 0, NA)
+    )
+    cluster_data <- subset(cluster_data, !is.na(treatment_indicator))
+    if (nrow(cluster_data) < 2) next
+    
+    mat_2d <- as.matrix(cluster_data[, c("logit_r_t", "logit_r_tprime")])
+    
+    Sigma <- cov(mat_2d)
+    Sigma_inv <- solve(Sigma)
+    L <- chol(Sigma_inv)
+    WeightedX <- t(L %*% t(mat_2d))
+    
+    # caliper in WeightedX space
+    WeightedX_mean <- apply(WeightedX, 1, function(z) sqrt(sum(z^2)))
+    caliper_width <- epsilon * sd(WeightedX_mean, na.rm = TRUE)
+    
+    match_result <- Match(
+      Y = NULL,
+      Tr = cluster_data$treatment_indicator,
+      X = WeightedX,  
+      M = 1,
+      caliper = caliper_width,
+      replace = TRUE
+    )
+    
+    matched_id <- data.frame(
+      id_ref     = cluster_data$id[ match_result$index.treated ],
+      t_ref      = cluster_data$Treatment[ match_result$index.treated ],
+      id_t_prime = cluster_data$id[ match_result$index.control ],
+      t_prime    = cluster_data$Treatment[ match_result$index.control ],
+      cluster    = k
+    )
+    all_matches <- rbind(all_matches, matched_id)
+  }
+  return(all_matches)
+}
+```
+
+### Calculate the pair-wise standardized bias
+
+```{r}
+calc_standardized_bias <- function(data, covariates, ref_treatment = 1) {
+  # This function expects data with columns:
+  #   - id
+  #   - Treatment
+  #   - pair (or matched set index)
+  #   - the covariates in 'covariates'
+  #
+  # Weighted approach: each subject i has frequency psi_i (# times matched).
+  
+  n_pairs <- length(unique(data$pair))
+  count_by_id <- table(data$id)
+  psi_lookup  <- setNames(as.numeric(count_by_id), names(count_by_id))
+  get_psi <- function(id_i) psi_lookup[as.character(id_i)]
+  
+  trt_levels <- sort(unique(data$Treatment))
+  if (length(trt_levels) != 2) {
+    stop("Data must have exactly 2 treatments for this SB calculation!")
+  }
+  
+  # Weighted means
+  wmean_mat <- matrix(
+    NA, 
+    nrow = length(covariates), 
+    ncol = 2, 
+    dimnames = list(covariates, paste0("T", trt_levels))
+  )
+  
+  for (p in seq_along(covariates)) {
+    cov_name <- covariates[p]
+    for (trt in trt_levels) {
+      rows_trt <- which(data$Treatment == trt)
+      if (length(rows_trt) == 0) {
+        wmean_mat[p, paste0("T", trt)] <- NA
+        next
+      }
+      Xp_vals  <- data[[cov_name]][rows_trt]
+      psi_vals <- sapply(data$id[rows_trt], get_psi)
+      weighted_sum <- sum(Xp_vals * psi_vals)
+      wmean_mat[p, paste0("T", trt)] <- weighted_sum / n_pairs
+    }
+  }
+  
+  # Weighted SD in the reference group
+  wsd_vec <- numeric(length(covariates))
+  names(wsd_vec) <- covariates
+  
+  ref_col <- paste0("T", ref_treatment)
+  rows_ref <- which(data$Treatment == ref_treatment)
+  psi_vals_ref <- sapply(data$id[rows_ref], get_psi)
+  
+  for (p in seq_along(covariates)) {
+    Xp_vals_ref <- data[[covariates[p]]][rows_ref]
+    wmean_ref   <- wmean_mat[p, ref_col]
+    
+    var_num <- sum(psi_vals_ref * (Xp_vals_ref - wmean_ref)^2)
+    var_den <- sum(psi_vals_ref)
+    if (var_den > 1e-10) {
+      wsd_vec[p] <- sqrt(var_num / var_den)
+    } else {
+      wsd_vec[p] <- NA
+    }
+  }
+  
+  # Standardized difference for the other group vs. reference
+  other_treatment <- setdiff(trt_levels, ref_treatment)
+  other_col <- paste0("T", other_treatment)
+  
+  sb_vec <- numeric(length(covariates))
+  names(sb_vec) <- covariates
+  for (p in seq_along(covariates)) {
+    denom <- wsd_vec[p]
+    if (is.na(denom) || denom < 1e-10) {
+      sb_vec[p] <- NA
+    } else {
+      mean_other <- wmean_mat[p, other_col]
+      mean_ref   <- wmean_mat[p, ref_col]
+      sb_vec[p]  <- (mean_other - mean_ref) / denom
+    }
+  }
+  
+  abs_sb <- abs(sb_vec)
+  return(abs_sb)
+}
+```
+
+### Estimate the ATE from the matched data set
+
+```{r}
+calc_ate_ipw <- function(data, t1 = 1, t2 = 2,
+                         y_col = "Y",
+                         trt_col = "Treatment",
+                         ps_cols = c("PS1", "PS2", "PS3")) {
+  data$ipw <- apply(data, 1, function(row) {
+    trt_val <- as.numeric(row[[trt_col]])
+    if (trt_val == 1) {
+      return(1 / as.numeric(row[[ ps_cols[1] ]]))  # 1/PS1
+    } else if (trt_val == 2) {
+      return(1 / as.numeric(row[[ ps_cols[2] ]]))  # 1/PS2
+    } else if (trt_val == 3) {
+      return(1 / as.numeric(row[[ ps_cols[3] ]]))  # 1/PS3
+    } else {
+      return(NA)
+    }
+  })
+  
+  # Weighted mean function
+  wmean <- function(x, w) sum(x * w) / sum(w)
+  # Subset for t1
+  idx_t1 <- data[[trt_col]] == t1
+  mu_t1 <- wmean(
+    x = data[[y_col]][idx_t1],
+    w = data$ipw[idx_t1]
+  )
+  # Subset for t2
+  idx_t2 <- data[[trt_col]] == t2
+  mu_t2 <- wmean(
+    x = data[[y_col]][idx_t2],
+    w = data$ipw[idx_t2]
+  )
+  ate_t1_t2 <- mu_t1 - mu_t2
+  return(list(mu_t1 = mu_t1, 
+              mu_t2 = mu_t2,
+              ATE_t1_t2 = ate_t1_t2))
+}
+```
+
+### Run one simulation
+
+The R function to run one simulation using all the function we defined previously. It is a big function.
+```{r}
+library(dplyr)
+
+one_simulation <- function(n = 3000,K = 3, 
+                           matching_method = c("M1", "M2", "VM_MD"), 
+                           epsilon = 0.2,   n_match = 2, seed = NULL,
+                           covariates_for_SB = c("X1","X2","X3","X4")) {
+  if(!is.null(seed)) set.seed(seed)
+  
+  ## 1) Simulate data
+  data <- simulate_multitreatment_data(n = n)
+  
+  ## 2) Estimate PS & drop out-of-support
+  ps <- estimate_propensity_scores(data)
+  ps_trt <- as.data.frame(cbind(ps, Treatment = data$Treatment))
+  css <- common_support(ps_trt, "Treatment")
+  valid_index <- filter_valid_subjects_indices(ps, css)
+  valid_data  <- data[valid_index,]
+  
+  ps_new <- estimate_propensity_scores(valid_data)
+  valid_data_ps <- cbind(valid_data, ps_new)
+  
+  ## 3) For each pair of treatments (1 vs 2), (1 vs 3), (2 vs 3):
+  ##    (a) KMC => cluster assignments
+  ##    (b) call the chosen matching function => matched pairs
+  ##    (c) build final matched cohort => compute standardized biases
+  
+  # Helper: choose the correct matching function
+  run_matching_func <- function(method, data_input, ref_t, t_prime_t) {
+    if (method == "M1") {
+      out <- perform_matching(data = data_input, 
+                              ref_treatment = ref_t,
+                              t_prime= t_prime_t,
+                              epsilon= epsilon)
+      } 
+    else if (method == "M2") {
+      out <- perform_matching_2(data = data_input,
+                                ref_treatment = ref_t,
+                                t_prime = t_prime_t,
+                                epsilon = epsilon,
+                                n_match = n_match)} 
+    else if (method == "VM_MD") {
+      out <- perform_matching_vm_md(data = data_input,
+                                    ref_treatment = ref_t,
+                                    t_prime = t_prime_t,
+                                    epsilon = epsilon)
+    } 
+    else if (method == "VM_MDnc") {
+      out <- perform_matching_vm_mdnc(data = data_input,
+                                      ref_treatment = ref_t,
+                                      t_prime = t_prime_t)
+    } else {
+      stop("Unrecognized matching method!")
+    }
+    return(out)
+  }
+  
+  # Pair (1 vs 2)
+  kmc_12 <- perform_kmc(ps_data = ps_new,
+                        ref_treatment = "PS1",
+                        t_prime = "PS2",
+                        K = K)
+  valid_data_ps_12 <- cbind(valid_data_ps, 
+                            Cluster = kmc_12$clusters)
+  matches_1_2 <- run_matching_func(matching_method, 
+                                   valid_data_ps_12, 
+                                   ref_t=1, t_prime=2)
+  
+  final_cohort_1_2 <- data.frame(id = c(rbind(matches_1_2$id_ref, 
+                                              matches_1_2$id_t_prime)),
+                                 t = c(rbind(matches_1_2$t_ref,
+                                             matches_1_2$t_prime )),
+                                 pair = rep(seq_len(nrow(matches_1_2)), 
+                                            each = 2))
+  final_cohort_1_2 <- dplyr::left_join(final_cohort_1_2,
+                                       valid_data_ps,
+                                       by = c("id", "t" = "Treatment")) %>%
+    dplyr::rename(Treatment = t)
+  
+  abs_sb_12 <- calc_standardized_bias(data = final_cohort_1_2,
+                                      covariates = covariates_for_SB,
+                                      ref_treatment = 1)
+  ###########
+  # Pair (1 vs 3)
+  kmc_13 <- perform_kmc(ps_data = ps_new,
+                        ref_treatment = "PS1",
+                        t_prime = "PS3",
+                        K= K)
+  valid_data_ps_13 <- cbind(valid_data_ps, Cluster = kmc_13$clusters)
+  matches_1_3 <- run_matching_func(matching_method, 
+                                   valid_data_ps_13, ref_t=1, t_prime=3)
+  final_cohort_1_3 <- data.frame(id = c(rbind(matches_1_3$id_ref, 
+                                              matches_1_3$id_t_prime)),
+                                 t = c(rbind(matches_1_3$t_ref,  
+                                             matches_1_3$t_prime )),
+                                 pair = rep(seq_len(nrow(matches_1_3)), 
+                                            each = 2))
+  final_cohort_1_3 <- dplyr::left_join(final_cohort_1_3,
+                                       valid_data_ps,
+                                       by = c("id", "t" = "Treatment")) %>%
+    dplyr::rename(Treatment = t)
+  abs_sb_13 <- calc_standardized_bias(data = final_cohort_1_3,
+                                      covariates = covariates_for_SB,
+                                      ref_treatment = 1)
+  ###########
+  # Pair (2 vs 3)
+  kmc_23 <- perform_kmc(ps_data = ps_new,
+                        ref_treatment = "PS2",
+                        t_prime = "PS3",
+                        K = K)
+  valid_data_ps_23 <- cbind(valid_data_ps, Cluster = kmc_23$clusters)
+  matches_2_3 <- run_matching_func(matching_method, valid_data_ps_23, 
+                                   ref_t=2, t_prime=3)
+  final_cohort_2_3 <- data.frame(id = c(rbind(matches_2_3$id_ref, 
+                                              matches_2_3$id_t_prime)),
+                                 t = c(rbind(matches_2_3$t_ref,  
+                                             matches_2_3$t_prime )),
+                                 pair = rep(seq_len(nrow(matches_2_3)), 
+                                            each = 2))
+  final_cohort_2_3 <- dplyr::left_join(final_cohort_2_3,
+                                       valid_data_ps,
+                                       by = c("id", "t" = "Treatment")) %>%
+    dplyr::rename(Treatment = t)
+  abs_sb_23 <- calc_standardized_bias(data = final_cohort_2_3,
+                                      covariates = covariates_for_SB,
+                                      ref_treatment = 2)
+  
+  ## 4) Combine the standardized biases
+  stopifnot(all(names(abs_sb_12) == names(abs_sb_13)))
+  stopifnot(all(names(abs_sb_12) == names(abs_sb_23)))
+  covariate_names <- names(abs_sb_12)
+  max2sb <- numeric(length(covariate_names))
+  for(i in seq_along(covariate_names)) {
+    p_name <- covariate_names[i]
+    # max over the absolute SB for (1,2), (1,3), (2,3)
+    max2sb[i] <- max(abs_sb_12[p_name],
+                     abs_sb_13[p_name],
+                     abs_sb_23[p_name],
+                     na.rm = TRUE)
+  }
+  mean_max2sb <- mean(max2sb, na.rm = TRUE)
+  
+  ## 5) Compute ATE(1,2) and ATE(1,3) from the *matched data*
+  ate_12_list <- calc_ate_ipw(data = final_cohort_1_2,
+                              t1 = 1,
+                              t2 = 2,
+                              y_col = "Y",
+                              trt_col = "Treatment",
+                              ps_cols = c("PS1","PS2","PS3"))
+  ate_13_list <- calc_ate_ipw(data = final_cohort_1_3,
+                              t1 = 1,
+                              t2 = 3,
+                              y_col = "Y",
+                              trt_col = "Treatment",
+                              ps_cols = c("PS1","PS2","PS3"))
+  ate_12 <- ate_12_list$ATE_t1_t2
+  ate_13 <- ate_13_list$ATE_t1_t2
+  
+  # 6) Compute matching rate:
+  matched_ids_12 <- unique(final_cohort_1_2$id)
+  matched_ids_13 <- unique(final_cohort_1_3$id)
+  matched_ids_23 <- unique(final_cohort_2_3$id)
+  matched_union  <- unique(c(matched_ids_12, matched_ids_13, matched_ids_23))
+  matching_rate  <- length(matched_union) / n  # proportion matched
+  
+  return(list(max2sb = mean_max2sb,
+              ate_12 = ate_12,
+              ate_13 = ate_13,
+              matching_rate = matching_rate))
+}
+```
+
+### Run multiple simulations
+
+```{r}
+run_simulations <- function(B, n = 3000, K = 3) {
+  # For M1
+  results_M1_max2sb  <- numeric(B)
+  results_M1_ate12   <- numeric(B)
+  results_M1_ate13   <- numeric(B)
+  results_M1_matchrate <- numeric(B)
+  
+  # For M2
+  results_M2_max2sb  <- numeric(B)
+  results_M2_ate12   <- numeric(B)
+  results_M2_ate13   <- numeric(B)
+  results_M2_matchrate <- numeric(B)
+  
+  # For VM_MD
+  results_VM_MD_max2sb  <- numeric(B)
+  results_VM_MD_ate12   <- numeric(B)
+  results_VM_MD_ate13   <- numeric(B)
+  results_VM_MD_matchrate <- numeric(B)
+  
+  for (b in seq_len(B)) {
+    seed_b <- 123 + b  # optional for reproducibility
+    
+    # --- M1 ---
+    sim_M1 <- one_simulation(
+      n = n, K = K,
+      matching_method  = "M1",
+      seed            = seed_b
+    )
+    results_M1_max2sb[b]   <- sim_M1$max2sb
+    results_M1_ate12[b]    <- sim_M1$ate_12
+    results_M1_ate13[b]    <- sim_M1$ate_13
+    results_M1_matchrate[b]<- sim_M1$matching_rate
+    
+    # --- M2 ---
+    sim_M2 <- one_simulation(
+      n = n, K = K,
+      matching_method  = "M2",
+      seed            = seed_b
+    )
+    results_M2_max2sb[b]   <- sim_M2$max2sb
+    results_M2_ate12[b]    <- sim_M2$ate_12
+    results_M2_ate13[b]    <- sim_M2$ate_13
+    results_M2_matchrate[b]<- sim_M2$matching_rate
+    
+    # --- VM_MD ---
+    sim_VM <- one_simulation(
+      n = n, K = K,
+      matching_method  = "VM_MD",
+      seed            = seed_b
+    )
+    results_VM_MD_max2sb[b]   <- sim_VM$max2sb
+    results_VM_MD_ate12[b]    <- sim_VM$ate_12
+    results_VM_MD_ate13[b]    <- sim_VM$ate_13
+    results_VM_MD_matchrate[b]<- sim_VM$matching_rate
+    
+    if (b %% 20 == 0) {
+      cat("Finished iteration:", b, "of", B, "\n")
+    }
+  }
+  return(list(VM = list(max2sb = results_M1_max2sb,
+                        ate_12 = results_M1_ate12,
+                        ate_13 = results_M1_ate13,
+                        match_rate = results_M1_matchrate),
+              VM2 = list(max2sb = results_M2_max2sb,
+                         ate_12 = results_M2_ate12,
+                         ate_13 = results_M2_ate13,
+                         match_rate = results_M2_matchrate),
+              VM_MD = list(max2sb = results_VM_MD_max2sb,
+                           ate_12 = results_VM_MD_ate12,
+                           ate_13 = results_VM_MD_ate13,
+                           match_rate = results_VM_MD_matchrate)))}
+```
+
+```{r}
+# Example usage
+# system.time({
+#   sim_results <- run_simulations(B = 300, n=3000, K=3)
+# })
+# save(sim_results, file = "sim300_4var_s1_results.Rdata")
+```
+
+### Simulation data
+
+Since the codes running time under one scenario is roughly five minutes under 300 iterations, it would be costly to run the simulation every time. To store the simulation data that we used in this paper, please visit my \href{https://github.com/yourusername/yourrepo}{GitHub page} and run the five R files separately, to get the data.
+
+
+\newpage
+
+
+# References
