@@ -1,5 +1,5 @@
 ---
-title: "Propensity Score Matching for Multiple-Treatments in Causal Inference"
+title: "Propensity Score Matching for Multiple Treatments in Causal Inference"
 author: "Yiliu Cao"
 abstract: "Propensity scores (PS), which measures the probability of receiving a treatment given a set of covariates, are widely used to estimate average treatment effects with one of the most popular method is propensity score matching. In traditional binary treatments setting, units from treatment and control groups are matched based on similar propensity scores. However, in practice, it is common to have multiple treatments, making the propensity score matching and estimation of average treatment effects be more challenging as propensity scores is now a vector instead of a scalar. This paper will mainly focus on the matching methods on propensity scores under multi-treatment such as Vector Matching and its extensions. This paper will conduct a simulation study to evaluate the performance of various matching strategies in terms of covariate balance, and assess the accuracy of ATE estimation under these approaches."
 title-block-banner: true
@@ -7,7 +7,7 @@ output:
   pdf_document:
     number_sections: true
 fontsize: 11pt
-# nocite: '@*'
+thanks: "All codes and data analyses can be found at: https://github.com/yiliuc/psm_multi-treatments"
 bibliography: references.bib
 csl: apa.csl
 ---
@@ -78,7 +78,7 @@ P\left(T=t \mid \mathbf{X}\right)=\frac{\exp \left(\mathbf{X}^\prime \boldsymbol
 P\left(T=Z \mid \mathbf{X}\right)=\frac{1}{1+\sum_{j=1}^{Z-1} \exp \left(\mathbf{X}^\prime \boldsymbol{\beta}_j\right)}
 \end{gathered}
 $$
-The R codes on estimating the generalized propensity scores can be found at Appendix.
+The R codes on estimating the generalized propensity scores can be found at Appendix 6.5.2.
 
 # Matching on Generalized Propensity Scores
 
@@ -146,29 +146,29 @@ and estimate the average treatment effect between treatment $t$ and $s$ by
 $$
 \widehat{ATE}_{ts}=\hat{\mu}_t-\hat{\mu}_s
 $$
-The R code used to implement this estimation method is provided in the Appendix.
+The R code used to implement this estimation method is provided in the Appendix 6.5.9.
 
 ## Simulation setup
 
 The simulation design in this paper was adpoted from the design from multi-level treatments settings [@lin_zhu_chen], with several modifications tailored to the multi-treatment setting. In this study, we will assume the outcome $Y$ is continuous and there are only three treatments for simplicity. To simulated data sets, we firstly generate two variables $X_1$, $X_2$ that are related to both treatment assignment and outcome, which are called as the confounders in our design. Moreover, we generate $X_3$ that are only associated with the treatment assignment and $X_4$ that is only related to the outcome. We will assume all variables are continuous and follow normal distribution with mean zero and standard deviation 1. Let the treatment space $\mathcal{T}=\{1,2,3\}$ such that $|\mathcal{T}|=3$. The treatment assignment probabilities are generated using a multinomial logistic model as follows:
 $$
 \begin{aligned}
-& P(T_i=0 \mid \mathbf{X}_i)=\frac{1}{1+\exp\{f_1(\mathbf{X}_i)\}+\exp\{f_2(\mathbf{X}_i)\}}\\
-& P(T_i=1 \mid \mathbf{X}_i)=\frac{\exp\{f_1(\mathbf{X}_i)\}}{1+\exp\{f_1(\mathbf{X}_i)\}+\exp\{f_2(\mathbf{X}_i)\}}\\
-& P(T_i=2 \mid \mathbf{X}_i)=\frac{\exp\{f_2(\mathbf{X}_i)\}}{1+\exp\{f_1(\mathbf{X}_i)\}+\exp\{f_2(\mathbf{X}_i)\}}
+& P(T_i=1 \mid \mathbf{X}_i)=\frac{1}{1+\exp\{f_1(\mathbf{X}_i)\}+\exp\{f_2(\mathbf{X}_i)\}}\\
+& P(T_i=2 \mid \mathbf{X}_i)=\frac{\exp\{f_1(\mathbf{X}_i)\}}{1+\exp\{f_1(\mathbf{X}_i)\}+\exp\{f_2(\mathbf{X}_i)\}}\\
+& P(T_i=3 \mid \mathbf{X}_i)=\frac{\exp\{f_2(\mathbf{X}_i)\}}{1+\exp\{f_1(\mathbf{X}_i)\}+\exp\{f_2(\mathbf{X}_i)\}}
 \end{aligned}
 $$
-where $f_j(\mathbf{X})$ are functions of covariates $\mathbf{X}_i$. In this study, we consider five different specifications for these functions, including linear, quadratic, interaction, and combination forms (details provided in the Appendix). In addition, the true data-generating process for the outcome is specified as:
+where $f_j(\mathbf{X})$ are functions of covariates $\mathbf{X}_i$. In this study, we consider five different specifications for these functions, including linear, quadratic, interaction, and combination forms (details provided in the Appendix 6.3). In addition, the true data-generating process for the outcome is specified as:
 $$
 \mathbb{E}[Y|\mathbf{X}]=4 + 0.3X_1 - 0.2X_2 + 0.6X_4-0.5\mathbf{I}\{T=2\}+0.7\mathbf{I}\{T=3\}
 $$
-where $\mathbf{I}\{T=j\}$ is an indicator variale that equals to 1 if and only if the treatment received for each unit is $j$. It can be computed that the true $ATE_{1,2}=0.5$, $ATE_{1,3}=-0.7$ and $ATE_{3,2}=-1.2$ (see Appendix).
+where $\mathbf{I}\{T=j\}$ is an indicator variale that equals to 1 if and only if the treatment received for each unit is $j$. It can be computed that the true $ATE_{1,2}=0.5$, $ATE_{1,3}=-0.7$ and $ATE_{3,2}=-1.2$ (see Appendix 6.2).
 
 When performing the Vector Matching, we choose the treatments 1 and 2 as reference treatments in separate iterations. As a result, the VM yields two sets of matched datasets: 1) units receiving treatment 1 matched to those receiving treatments 2 and 3, and 2 units receiving treatment 2 matched to those receiving treatments 3. As illustrate in the previous subsection, overall standardized bias simplifies to:
 $$
 \operatorname{Max}2SB_p=\max \left(\left|S B_{p 12}\right|,\left|S B_{p 13}\right|,\left|S B_{p23}\right|\right)
 $$
-For each scenario described in Appendix, we take the sample size to be 3000. The full simulation works as follows:
+For each scenario described in Appendix 6.3, we take the sample size to be 3000. The full simulation works as follows:
 
 1. Generate 3000 samples using the given scenario of $f_j(\mathbf{X}_i)$.
 2. Compute the generalized propensity scores for each unit using multinomial logistic regression, and compute the common support region described previously.
@@ -178,44 +178,15 @@ For each scenario described in Appendix, we take the sample size to be 3000. The
 6. Use the resulting data sets to compute the $\overline{\operatorname{Max}2SB}$ and matched rate which is the proprotion of units being matched across all matched data sets. We will also estimate the two average effect $\widehat{ATE_{12}}$ and $\widehat{ATE_{13}}$.
 7. Repeat Steps 1 to 5 for 300 times.
 
-While we can also estimate $\widehat{ATE_{23}}$, we focus on treatment pairs involving the same reference group (i.e., treatment 1), to allow for more consistent estimates across the methods. The codes of generating the data can be found at Appendix. Appendix a to b shows the functions of steps 2 to 5. Appendix c shows the codes for running one simulation and Appendix d shows how to fun the simulation for multiple times.
+While we can also estimate $\widehat{ATE_{23}}$, we focus on treatment pairs involving the same reference group (i.e., treatment 1), to allow for more consistent estimates across the methods. The codes of generating the data can be found at Appendix 6.5.1. Appendix 6.5.2 to 6.5.9 shows the functions of steps 2 to 5. Appendix 6.5.10 shows the codes for running one simulation and Appendix 6.5.11 shows how to fun the simulation for multiple times.
 
 ## Simulation results
 
-```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=4, fig.cap="*Covariate density by treatment group for one simulation before matching*"}
-data <- simulate_multitreatment_data(3000)
+Due to the space limit, all the plots that are described at the main text are moved to Appendix 6.4.1.
 
-library(ggplot2)
-library(gridExtra)
+Figure 1 presents the distribution of the four covariates across the three treatment groups in a single simulated dataset under Scenario 1 in Appendix 6.3. It shows notable discrepancies in covariate distributions between treatment groups, with particularly large differences observed in $X_1$, $X_2$ and $X_3$. This imbalance underscores a key concern in causal inference that the direct estimation of $ATE$ without adjustment for confounding variables would likely result in substantial bias and misleading conclusions. This also highlights the necessarity of methods such as propensity score matching.
 
-plot_covariate_densities <- function(data, covariates, nrow = 2, ncol = 2, caption = NULL) {
-  plot_list <- list()
-  
-  for (i in seq_along(covariates)) {
-    covar <- covariates[i]
-    
-    p <- ggplot(data, aes_string(x = covar, fill = "factor(Treatment)")) +
-      geom_density(alpha = 0.4) +
-      labs(title = paste(covar),
-           x     = covar,
-           fill  = "Treatment") +
-      theme_minimal()
-    
-    plot_list[[i]] <- p
-  }
-  
-  # Arrange all plots with optional caption at the bottom
-  do.call(grid.arrange, c(plot_list, nrow = nrow, ncol = ncol,
-                          bottom = if (!is.null(caption)) caption else NULL))
-}
-
-covariates <- c("X1", "X2", "X3", "X4")
-plot_covariate_densities(data, covariates)
-```
-
-Figure 1 presents the distribution of the four covariates across the three treatment groups in a single simulated dataset under Scenario 1. It shows notable discrepancies in covariate distributions between treatment groups, with particularly large differences observed in $X_1$, $X_2$ and $X_3$. This imbalance underscores a key concern in causal inference that the direct estimation of $ATE$ without adjustment for confounding variables would likely result in substantial bias and misleading conclusions. This also highlights the necessarity of methods such as propensity score matching.
-
-Following the matching steps, Figure 2 shows the distribution of $\overline{\operatorname{Max}2SB}$ and the matching rate under the four methods under scenario 1. We can see that all three method all has a distribution with mean bias larger than the cutoff 0.2 suggested by the McCaffrey et al. [@mccaffrey], suggesting that none of these method eliminate the bias perfectly. Among the three matching methods, the Vector Matching with two matches has the highest bias, whose mean bias is around 2. Followed by VM2, the original matching has the medium bias with mean around 1.5. In addition, the Vector Matching using Mahalanobis distance generates the lowest bias, with main part lies between 0.7 and 0.8. All three methods have relatively good performance on matching rate, which are all above 80%. In addition, the pattern observed in the matching rate mirrors that of the covariate bias. Methods that yield higher bias tend to retain a larger proportion of matched units, while those that enforce stricter similarity criteria result in lower matching rates. This outcome is expected, as the use of Mahalanobis distance imposes more stringent matching constraints, leading to a lower matching rate.
+Following the matching steps, Figure 2 shows the distribution of $\overline{\operatorname{Max}2SB}$ and the matching rate under the four methods under scenario 1 in Appendix 6,3. We can see that all three method all has a distribution with mean bias larger than the cutoff 0.2 suggested by the McCaffrey et al. [@mccaffrey], suggesting that none of these method eliminate the bias perfectly. Among the three matching methods, the Vector Matching with two matches has the highest bias, whose mean bias is around 2. Followed by VM2, the original matching has the medium bias with mean around 1.5. In addition, the Vector Matching using Mahalanobis distance generates the lowest bias, with main part lies between 0.7 and 0.8. All three methods have relatively good performance on matching rate, which are all above 80%. In addition, the pattern observed in the matching rate mirrors that of the covariate bias. Methods that yield higher bias tend to retain a larger proportion of matched units, while those that enforce stricter similarity criteria result in lower matching rates. This outcome is expected, as the use of Mahalanobis distance imposes more stringent matching constraints, leading to a lower matching rate.
 
 ```{r, echo=FALSE, message = FALSE}
 # Read the simulation data
@@ -248,108 +219,19 @@ make_dfs <- function(sim) {
 all_sims <- lapply(sim_list, make_dfs)
 ```
 
-```{r, echo=FALSE, message=FALSE, fig.width=8, fig.height=3.5, fig.cap = "*Average of maximum pair-wise treatment bias and corresponding matching rate under each method (Scenario 1).*"}
-par(mfrow = c(1, 2), mar = c(3.8, 4, 1.9, 0.5))
-boxplot(all_sims$simulation_1$max2sb,
-        main = expression("Average bias " * bar("Max 2SB")),
-        ylab = "Estimation",
-        xlab = "",
-        col = c("lightblue", "#E69F00", "#E41A1C"))
-boxplot(all_sims$simulation_1$match_rate,
-        main = "Matched Rate",
-        ylab = "Matching Rate (%)",
-        xlab = "",
-        col = c("lightblue", "#E69F00", "#E41A1C"))
-```
-
-In addition to the bias and matching rate, Figure 3 shows the distribution of estimation of the two treatment effects. Recall that the true treatment effects are 0.2 and -0.7. All three methods seems to have a relatively same performance, where the mean estimations for the two are around 0.55 and -0.8. However, it seems that the results using VM_MD exhibit slightly greater deviation from the true values compared to the other methods. The reason is might be the lower matching rate of VM_MD, which leads to a loss of sample size and reduced data variability, thereby increasing the variance of the estimates.
-
-```{r, echo = FALSE, fig.width=8, fig.height=3.5, fig.cap = "*Distributions of ATE Estimates for Treatments 1 vs 2 and 1 vs 3 under each method (Scenario 1).*"}
-par(mfrow = c(1, 2), mar = c(3.8, 4, 1.9, 0.5))
-boxplot(all_sims$simulation_1$ate_12,
-        main = expression("Estimation of " * ATE[12]),
-        ylab = expression(ATE[12]),
-        xlab = "",
-        col = c("lightblue", "#E69F00", "#E41A1C"))
-boxplot(all_sims$simulation_1$ate_13,
-        main = expression("Estimation of " * ATE[13]),
-        ylab = expression(ATE[13]),
-        xlab = "",
-        col = c("lightblue", "#E69F00", "#E41A1C"))
-```
-
-```{r, echo=FALSE, fig.width=8, fig.height=5, fig.cap = "*Comparision of estimation on two treatment effects under different scenarios under different methods.*"}
-# 1. compute a 3×5 matrix of means (rows = methods, cols = simulations)
-means_ate_12 <- sapply(all_sims, function(sim) {
-  colMeans(sim$ate_12)
-})
-means_ate_13 <- sapply(all_sims, function(sim) {
-  colMeans(sim$ate_13)
-})
-# gives a matrix with rownames VM, VM2, VM_MD
-
-# 2. transpose and plot
-par(mfrow = c(2, 1), mar = c(3.9, 4, 0, 2))
-matplot(
-  t(means_ate_12),            # now 5×3: rows=scenarios, cols=methods
-  type = "b",               # both points and lines
-  pch  = 1:3,               # different point shapes
-  lwd = 2,
-  lty  = 1,                 # solid lines
-  col  = c("lightblue","#E69F00","#E41A1C"),  # your three colours
-  xaxt = "n",               # we'll add x-axis manually
-  xlab = "",
-  ylab = expression(Average~ATE[12])
-)
-axis(1, at = 1:5, labels = 1:5)  # label scenarios 1–5
-
-legend(
-  "topright",
-  legend = rownames(means_ate_12),
-  col    = c("lightblue","#E69F00","#E41A1C"),
-  pch    = 1:3,
-  lwd = 1.5,
-  lty    = 1,
-  cex = 0.63
-)
-
-matplot(
-  t(means_ate_13),            # now 5×3: rows=scenarios, cols=methods
-  type = "b",               # both points and lines
-  pch  = 1:3,               # different point shapes
-  lwd = 2,
-  lty  = 1,                 # solid lines
-  col  = c("lightblue","#E69F00","#E41A1C"),  # your three colours
-  xaxt = "n",               # we'll add x-axis manually
-  xlab = "Scenario",
-  ylab = expression(Average~ATE[13])
-)
-axis(1, at = 1:5, labels = 1:5)  # label scenarios 1–5
-
-legend(
-  "topright",
-  legend = rownames(means_ate_13),
-  col    = c("lightblue","#E69F00","#E41A1C"),
-  pch    = 1:3,
-  lwd = 1.5,
-  lty    = 1,
-  cex = 0.63
-)
-
-```
+In addition to the bias and matching rate, Figure 3 shows the distribution of estimation of the two treatment effects under the Scenario 1 in Appendix 6.3. Recall that the true treatment effects are 0.2 and -0.7. All three methods seems to have a relatively same performance, where the mean estimations for the two are around 0.55 and -0.8. However, it seems that the results using VM_MD exhibit slightly greater deviation from the true values compared to the other methods. The reason is might be the lower matching rate of VM_MD, which leads to a loss of sample size and reduced data variability, thereby increasing the variance of the estimates. Furthermore, we can observe the similar patterns as shown in Figure 1 to 3 for other scenarios in Appendix 6.3, indicating a consistent performance under different treatment assignment.
 
 Finally, Figure 4 compares the estimation of the two treatment effects under the five scenarios of $f_j$ under the three methods. For the estimation of $ATE_{12}$, the VM and VM2 seems to have the similar performance, where their estimates are similar under each scenarios. In contrast, VM_MD seems to generate the worse estimates, which has an approximate 0.02 estimation gap between the other two methods. Interestingly, all three methods have perfect estimation in Scenario 2, where the estimates are both very close to the true value 0.5. A similar pattern is observed for the estimation of $ATE_{13}$, where VM_MD only generates the similar estimates as the other two in scenarios 2 and 3, and has notable discrepancies on the rest. Furthermore, all three methods perform less accurately in estimating $ATE_{13}$ compared $ATE_{12}$, indicating that the estimation of treatment effects involving treatment 3 may be more sensitive to imbalance or model misspecification.
 
 # Discussion
 
-This paper introduced the generalized propensity scores in multi-treatment settings, and discuss the propensity score matching for generalized propensity scores, Vector Matching. This paper has conducted an simulation study to illustrate the performance of each matching method using different data-generating scheme. Overall, the performance of the Vector Matching and its extensions are satisfied. From Figure 2 to 4, we see that except the relatively high bias, the matching rate are excellent and the estimation of ATEs are close to the true value. In addition, from Figure 4, all three methods has good performance under different treatment assignment. Such results all suggest that the ability of propensity scores on eliminating confounding effects in observational studies.
+This paper introduced the generalized propensity scores in multi-treatment settings, and discuss the propensity score matching for generalized propensity scores, Vector Matching. This paper has conducted an simulation study to illustrate the performance of each matching method using different data-generating scheme. Overall, the performance of the Vector Matching and its extensions are satisfied. From Figure 2 to 4, while the standardized bias remains relatively high, the matching rate are consistently high and the estimation of ATEs generally close to the true values. In addition, from Figure 4, all three methods has good performance under different treatment assignment. These findings underscore the effectiveness of Vector Matching.
 
-However, the recent study on propensity scores focus more on how to estimate them instead of how to use them. Moreover, for the methods using PS, other methods such as Inverse Probability Weighting or Doubly Robust Estimators [@fanli], or propensity score adjustment [@psa], seems to be more reliable and easy to implement. There are some potebtial reason behind this. Firstly, this method is computational intensive, especially when the number of treatments and number of covariates increases. In the simulation study, we considered the simplest case where we only take three treatments and take only choose 300 iterations which is smaller than common simulation studies. The reason for this is that the function to run one simulation is complicated and it is a big function (see Appendix). The time consuming to run 300 simulation under the Scenario 1 is around five minutes, and the time it takes increases gradually as we includes quardratic and interaction term in data simulation. Consequently, it will need significant much more time run even we only increase the number of treatment to four, or with a higher simulation times. This is also the main reason why we only present the three-treatment simulation rather than higher order. 
+However, the recent study on propensity scores focus more on how to estimate them instead of how to use them. In practice, alternative methods such as Inverse Probability Weighting or Doubly Robust Estimators [@fanli], or propensity score adjustment [@psa], are more widely accepted due to the ease of implementation. There are several reasons on limiting use of matching methods. Firstly, this method is too computational intensive, especially when the number of treatments and number of covariates increases. In this simulation study, we considered a simplified setting with only three treatment groups and conducted 300 iterations, which is fewer than the common simulation study. This is due to the complexity and size of the function used to run a single simulation iteration (see Appendix 6.5.10). Even under the simplest scenario (Scenario 1), running 300 simulations required approximately five minutes. The computation time increases significantly when quadratic or interaction terms are introduced into the data-generating process. As a results, increasing the number of treatments will significantly increase the computational burden. This is the primary reason why the current study is limited to three-treatment settings.
 
-As a result from low number of simulation, the results we see from Figure 2 and Figure 3 may not be the asymptotic performance of Vector Matching. That is, if we can increase the number of simulation to, say 1000 times. Then the estimated imbalance across the covariates should be lower, and the results of estimation of the two ATEs should be closer to the true treatment effects.This also implies that the Vector Matching should perform well when the number of coefficients gets higher, and eventually satisfies the cutoff suggest by Rubin and Thomas (1996), McCaffrey et al. (2013). On the other hand, even though we are at the low simulation, from Figure 4, it seems that the over estimation of $ATE_{12}$ is significantly better than $ATE_{13}$, even though they reference treatment are both treatment 1. 
+As a consequence of the relatively low number of simulation iterations, the results presented in Figures 2 and 3 may not reflect the asymptotic performance of Vector Matching. If we can increase the number of simulation to, say 1000 times, then the estimated imbalance across the covariates should be lower, and the results of estimation of the two ATEs should be closer to the true treatment effects.This suggests that, with a sufficiently large number of iterations, Vector Matching has the potential to achieve the cutoff suggest by Rubin and Thomas (1996) and McCaffrey et al. (2013). Interestingly, even under the current limited number of simulations, Figure 4 shows a notable difference in performance between the estimation of $ATE_{12}$ and $ATE_{13}$, despite they all using treatment 1 as the reference. A plausible explanation for this discrepancy is that the coefficients in $f_1(\mathbf{X})$ are moderate and aligned in the same direction. In addition, in the outcome model, the treatment effect for treatment 3 (+0.7) is larger than that for treatment 2 (-0.5). This may increase the residual unbalance when estimating $ATE_{13}$ to be 1.4 timer higher than $ATE_{12}$.
 
-
-Future direction should be mainly concentrate on three things. Firstly, the extensions of VM presented in this paper are just two of them, there are much more possible extensions on Vector Matching [@matching2]. For example, one possible way is to use the fuzzy clustering instead of K-means clustering in step 5 a in Section 3.1. It can provides better classification abilities on the boundries of clustering. Another possible extension is that we do not set the caliper when perform matching using either the original VM or VM using Mahalanobis distance. This means we are now more generous as we do not set the maximum accept distance between units when matching. The original VM without the cliper seems to have the best performance on reducing the bias [@matching2]. In addition, there performance of Vector Matching when the number of treatment and number of covariates are really huge but the sample size are small are still unknown. This would be another challenging topic as it combines the problem of small sample and high-dimensional matching.
+Future direction should be mainly concentrate on two things. Firstly, there are other possible extensions on Vector Matching except the two listed on this paper [@matching2]. For example, one possible way is to use the fuzzy clustering instead of K-means clustering in step 5 a in Section 3.1, which can provides better classification abilities on the boundries of clustering. Another one is that we may not set the caliper in both original VM or VM using Mahalanobis distance. Without a caliper, the algorithm becomes more flexible by allowing greater variation in the matched distances between units. Interestingly, the original VM without the caliper seems to have the best performance on reducing the bias [@matching2]. Finally, the performance of Vector Matching when the number of treatments and covariates is large relative to the sample size remains unclear. This would be a challenging topic as it combines small-sample inference and high-dimensional matching, which needs further research.
 
 \newpage
 
@@ -474,9 +356,137 @@ $$
 
 ## Graphics
 
+This section contains all graphics that are important in this study.
+
+### Graph that should be included on the text but lack of space
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=8, fig.height=4, fig.cap="*Covariate density by treatment group for one simulation before matching*"}
+data <- simulate_multitreatment_data(3000)
+
+library(ggplot2)
+library(gridExtra)
+
+plot_covariate_densities <- function(data, covariates, nrow = 2, ncol = 2, caption = NULL) {
+  plot_list <- list()
+  
+  for (i in seq_along(covariates)) {
+    covar <- covariates[i]
+    
+    p <- ggplot(data, aes_string(x = covar, fill = "factor(Treatment)")) +
+      geom_density(alpha = 0.4) +
+      labs(title = paste(covar),
+           x     = covar,
+           fill  = "Treatment") +
+      theme_minimal()
+    
+    plot_list[[i]] <- p
+  }
+  
+  # Arrange all plots with optional caption at the bottom
+  do.call(grid.arrange, c(plot_list, nrow = nrow, ncol = ncol,
+                          bottom = if (!is.null(caption)) caption else NULL))
+}
+
+covariates <- c("X1", "X2", "X3", "X4")
+plot_covariate_densities(data, covariates)
+```
+
+```{r, echo=FALSE, message=FALSE, fig.width=8, fig.height=3.5, fig.cap = "*Average of maximum pair-wise treatment bias and corresponding matching rate under each method (Scenario 1).*"}
+par(mfrow = c(1, 2), mar = c(3.8, 4, 1.9, 0.5))
+boxplot(all_sims$simulation_1$max2sb,
+        main = expression("Average bias " * bar("Max 2SB")),
+        ylab = "Estimation",
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+boxplot(all_sims$simulation_1$match_rate,
+        main = "Matched Rate",
+        ylab = "Matching Rate (%)",
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+```
+
+```{r, echo = FALSE, fig.width=8, fig.height=3.5, fig.cap = "*Distributions of ATE Estimates for Treatments 1 vs 2 and 1 vs 3 under each method (Scenario 1).*"}
+par(mfrow = c(1, 2), mar = c(3.8, 4, 1.9, 0.5))
+boxplot(all_sims$simulation_1$ate_12,
+        main = expression("Estimation of " * ATE[12]),
+        ylab = expression(ATE[12]),
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+boxplot(all_sims$simulation_1$ate_13,
+        main = expression("Estimation of " * ATE[13]),
+        ylab = expression(ATE[13]),
+        xlab = "",
+        col = c("lightblue", "#E69F00", "#E41A1C"))
+```
+
+```{r, echo=FALSE, fig.width=8, fig.height=5, fig.cap = "*Comparision of estimation on two treatment effects under different scenarios under different methods.*"}
+# 1. compute a 3×5 matrix of means (rows = methods, cols = simulations)
+means_ate_12 <- sapply(all_sims, function(sim) {
+  colMeans(sim$ate_12)
+})
+means_ate_13 <- sapply(all_sims, function(sim) {
+  colMeans(sim$ate_13)
+})
+# gives a matrix with rownames VM, VM2, VM_MD
+
+# 2. transpose and plot
+par(mfrow = c(2, 1), mar = c(3.9, 4, 0, 2))
+matplot(
+  t(means_ate_12),            # now 5×3: rows=scenarios, cols=methods
+  type = "b",               # both points and lines
+  pch  = 1:3,               # different point shapes
+  lwd = 2,
+  lty  = 1,                 # solid lines
+  col  = c("lightblue","#E69F00","#E41A1C"),  # your three colours
+  xaxt = "n",               # we'll add x-axis manually
+  xlab = "",
+  ylab = expression(Average~ATE[12])
+)
+axis(1, at = 1:5, labels = 1:5)  # label scenarios 1–5
+
+legend(
+  "topright",
+  legend = rownames(means_ate_12),
+  col    = c("lightblue","#E69F00","#E41A1C"),
+  pch    = 1:3,
+  lwd = 1.5,
+  lty    = 1,
+  cex = 0.63
+)
+
+matplot(
+  t(means_ate_13),            # now 5×3: rows=scenarios, cols=methods
+  type = "b",               # both points and lines
+  pch  = 1:3,               # different point shapes
+  lwd = 2,
+  lty  = 1,                 # solid lines
+  col  = c("lightblue","#E69F00","#E41A1C"),  # your three colours
+  xaxt = "n",               # we'll add x-axis manually
+  xlab = "Scenario",
+  ylab = expression(Average~ATE[13])
+)
+axis(1, at = 1:5, labels = 1:5)  # label scenarios 1–5
+
+legend(
+  "topright",
+  legend = rownames(means_ate_13),
+  col    = c("lightblue","#E69F00","#E41A1C"),
+  pch    = 1:3,
+  lwd = 1.5,
+  lty    = 1,
+  cex = 0.63
+)
+```
+
+
+\newpage
+
+
+### Graphics for other scenarios discibed in 6.3
+
 The average bias, matching rate estimation of the two treatment effect for the rest four scenarios that we do not have the space to put them on the main text.
 
-```{r, echo=FALSE, fig.pos='H', fig.width=8, fig.height = 4, fig.cap = "The average bias, matching rate estimation of the two treatment effect under scenario 2"}
+```{r, echo=FALSE, fig.pos='H', fig.width=8, fig.height = 4, fig.cap = "*The average bias, matching rate and estimation of the two treatment effect under scenario 2*"}
 par(mfrow = c(2, 2), mar = c(3.8, 4, 1.9, 0.5))
 boxplot(all_sims$simulation_2$max2sb,
         main = expression("Average bias " * bar("Max 2SB")),
@@ -500,7 +510,7 @@ boxplot(all_sims$simulation_2$ate_13,
         col = c("lightblue", "#E69F00", "#E41A1C"))
 ```
 
-```{r, echo=FALSE, fig.pos='H', fig.width=8, fig.height=4, fig.cap = "The average bias, matching rate estimation of the two treatment effect under scenario 3"}
+```{r, echo=FALSE, fig.pos='H', fig.width=8, fig.height=4, fig.cap = "*The average bias, matching rate and estimation of the two treatment effect under scenario 3*"}
 par(mfrow = c(2, 2), mar = c(3.8, 4, 1.9, 0.5))
 boxplot(all_sims$simulation_3$max2sb,
         main = expression("Average bias " * bar("Max 2SB")),
@@ -524,7 +534,7 @@ boxplot(all_sims$simulation_3$ate_13,
         col = c("lightblue", "#E69F00", "#E41A1C"))
 ```
 
-```{r, echo=FALSE, fig.pos='H', fig.width=8, fig.height=4, fig.cap = "The average bias, matching rate estimation of the two treatment effect under scenario 4"}
+```{r, echo=FALSE, fig.pos='H', fig.width=8, fig.height=4, fig.cap = "*The average bias, matching rate and estimation of the two treatment effect under scenario 4*"}
 par(mfrow = c(2, 2), mar = c(3.8, 4, 1.9, 0.5))
 boxplot(all_sims$simulation_4$max2sb,
         main = expression("Average bias " * bar("Max 2SB")),
@@ -548,7 +558,7 @@ boxplot(all_sims$simulation_4$ate_13,
         col = c("lightblue", "#E69F00", "#E41A1C"))
 ```
 
-```{r, echo=FALSE, fig.pos='H', fig.width=8, fig.height=4, fig.cap = "The average bias, matching rate estimation of the two treatment effect under scenario 5"}
+```{r, echo=FALSE, fig.pos='H', fig.width=8, fig.height=4, fig.cap = "*The average bias, matching rate and estimation of the two treatment effect under scenario 5*"}
 par(mfrow = c(2, 2), mar = c(3.8, 4, 1.9, 0.5))
 boxplot(all_sims$simulation_5$max2sb,
         main = expression("Average bias " * bar("Max 2SB")),
@@ -627,7 +637,8 @@ The R function that estimate the generalized propensity scores using multinomial
 library(nnet)  # for multinom
 estimate_propensity_scores <- function(data) {
   data$Treatment <- as.factor(data$Treatment)
-  model <- multinom(Treatment ~ . - Treatment - id - Y, data = data, trace = FALSE)
+  model <- multinom(Treatment ~ . - Treatment - id - Y, data = data, 
+                    trace = FALSE)
   propensity_scores <- predict(model, type = "probs")
   treatment_levels <- levels(data$Treatment)
   colnames(propensity_scores) <- paste0("PS", treatment_levels)
@@ -678,7 +689,8 @@ The R function that perform the K-means clustering based on the $l$ such that $l
 ```{r}
 perform_kmc <- function(ps_data, ref_treatment, t_prime, K = 5) {
   # Filter the propensity scores
-  ps_subset <- ps_data[, !colnames(ps_data) %in% c(ref_treatment, t_prime), drop = FALSE]
+  ps_subset <- ps_data[, !colnames(ps_data) %in% c(ref_treatment, t_prime), 
+                       drop = FALSE]
   
   # Apply logit transformation to the remaining propensity scores
   logit_transform <- function(p) log(p / (1 - p))
@@ -745,7 +757,8 @@ perform_matching <- function(data, ref_treatment, t_prime, epsilon = 0.2) {
 ### Vector Matching with two matches VM2
 
 ```{r}
-perform_matching_2 <- function(data, ref_treatment, t_prime, epsilon = 0.2, n_match = 2) {
+perform_matching_2 <- function(data, ref_treatment, t_prime, epsilon = 0.2, 
+                               n_match = 2) {
   all_matches <- data.frame()
   unique_clusters <- unique(data$Cluster)
   
@@ -797,7 +810,7 @@ perform_matching_vm_md <- function(data, ref_treatment, t_prime, epsilon = 0.2) 
     cluster_data <- data[data$Cluster == k, ]
     
     logit_transform <- function(p) log(p / (1 - p))
-    cluster_data$logit_r_t      <- logit_transform(cluster_data[[paste0("PS", ref_treatment)]])
+    cluster_data$logit_r_t <- logit_transform(cluster_data[[paste0("PS", ref_treatment)]])
     cluster_data$logit_r_tprime <- logit_transform(cluster_data[[paste0("PS", t_prime)]])
     
     cluster_data$treatment_indicator <- ifelse(
@@ -1167,7 +1180,7 @@ run_simulations <- function(B, n = 3000, K = 3) {
   results_VM_MD_matchrate <- numeric(B)
   
   for (b in seq_len(B)) {
-    seed_b <- 123 + b  # optional for reproducibility
+    seed_b <- 123 + b
     
     # --- M1 ---
     sim_M1 <- one_simulation(
@@ -1230,7 +1243,7 @@ run_simulations <- function(B, n = 3000, K = 3) {
 
 ### Simulation data
 
-Since the codes running time under one scenario is roughly five minutes under 300 iterations, it would be costly to run the simulation every time. To store the simulation data that we used in this paper, please visit my \href{https://github.com/yourusername/yourrepo}{GitHub page} and run the five R files separately, to get the data.
+Since the codes running time under one scenario is roughly five minutes under 300 iterations, it would be costly to run the simulation every time. To store the simulation data that I used in this paper locally, please visit my GitHub (\href{https://github.com/yiliuc/psm_multi-treatments/tree/main/simulation}{here}), and run the five R files separately to get the corresponding data.
 
 
 \newpage
